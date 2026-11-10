@@ -21,7 +21,7 @@ def upload_epub(epub_path: str | Path, config: Config) -> bool:
     Returns ``True`` on success, ``False`` on failure.
     """
     epub_path = Path(epub_path)
-    dest = f"{config.remarkable_folder}/{epub_path.name}"
+    dest = config.remarkable_folder
 
     logger.info("Uploading %s → %s", epub_path, dest)
 
