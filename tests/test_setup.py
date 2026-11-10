@@ -216,6 +216,337 @@ class TestCopyFeeds:
 
 
 # ---------------------------------------------------------------------------
+# Step 5b — Customize feeds.yaml (5 sub-steps, each skippable)
+# ---------------------------------------------------------------------------
+
+_FEEDS_YAML = """\
+primary_language: en
+sources:
+  - name: Test EN
+    type: rss
+    feeds:
+      - http://en.example.com/feed
+    limit: 5
+  - name: Test DE
+    type: rss
+    feeds:
+      - http://de.example.com/feed
+    limit: 5
+    language: de
+curation:
+  max_articles: 25
+  max_per_source: 5
+"""
+
+
+def _write_feeds(tmp_path, content=None):
+    """Write a feeds.yaml to *tmp_path* and return its Path."""
+    path = tmp_path / "feeds.yaml"
+    path.write_text(content or _FEEDS_YAML, encoding="utf-8")
+    return path
+
+
+def _seq(monkeypatch, values):
+    """Make _prompt return *values* in order, then empty string."""
+    it = iter(values)
+    monkeypatch.setattr(wiz, "_prompt", lambda msg: next(it, ""))
+
+
+class TestCustomizeLanguage:
+    def test_change_language(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "de"])
+        result = wiz.customize_language(feeds)
+        assert result.status == "done"
+        assert result.detail == "de"
+        data = wiz._yaml_load(feeds)
+        assert data["primary_language"] == "de"
+
+    def test_skip_at_yesno(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _no(monkeypatch)
+        result = wiz.customize_language(feeds)
+        assert result.status == "skipped"
+
+    def test_skip_with_enter(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", ""])
+        result = wiz.customize_language(feeds)
+        assert result.status == "skipped"
+        assert result.detail == "no change"
+
+    def test_invalid_language(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "xx"])
+        result = wiz.customize_language(feeds)
+        assert result.status == "warning"
+
+    def test_no_feeds_yaml(self, monkeypatch, tmp_path):
+        _yes(monkeypatch)
+        result = wiz.customize_language(tmp_path / "nonexistent.yaml")
+        assert result.status == "skipped"
+        assert "no feeds.yaml" in result.detail
+
+
+class TestCustomizeSources:
+    def test_disable_source(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        # yes to proceed, disable EN, disable DE
+        _seq(monkeypatch, ["y", "n", "n"])
+        result = wiz.customize_sources(feeds)
+        assert result.status == "done"
+        data = wiz._yaml_load(feeds)
+        assert data["sources"][0]["enabled"] is False
+        assert data["sources"][1]["enabled"] is False
+
+    def test_enable_some_disable_some(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        # yes, enable EN (already enabled), disable DE
+        _seq(monkeypatch, ["y", "y", "n"])
+        result = wiz.customize_sources(feeds)
+        assert result.status == "done"
+        data = wiz._yaml_load(feeds)
+        assert data["sources"][0]["enabled"] is True
+        assert data["sources"][1]["enabled"] is False
+
+    def test_skip_at_yesno(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _no(monkeypatch)
+        result = wiz.customize_sources(feeds)
+        assert result.status == "skipped"
+
+    def test_no_changes(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        # yes to proceed, but Enter for both sources
+        _seq(monkeypatch, ["y", "", ""])
+        result = wiz.customize_sources(feeds)
+        assert result.status == "skipped"
+        assert result.detail == "no changes"
+
+    def test_no_sources(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path, "primary_language: en\n")
+        _yes(monkeypatch)
+        result = wiz.customize_sources(feeds)
+        assert result.status == "skipped"
+        assert "no sources" in result.detail
+
+    def test_no_feeds_yaml(self, monkeypatch, tmp_path):
+        _yes(monkeypatch)
+        result = wiz.customize_sources(tmp_path / "nonexistent.yaml")
+        assert result.status == "skipped"
+        assert "no feeds.yaml" in result.detail
+
+    def test_grouped_by_language(self, monkeypatch, tmp_path):
+        """Verify sources are grouped and iterated by language."""
+        feeds = _write_feeds(tmp_path)
+        # yes, skip EN (Enter), disable DE
+        _seq(monkeypatch, ["y", "", "n"])
+        result = wiz.customize_sources(feeds)
+        assert result.status == "done"
+        data = wiz._yaml_load(feeds)
+        # EN source: no 'enabled' key (skipped, unchanged)
+        assert "enabled" not in data["sources"][0]
+        # DE source: disabled
+        assert data["sources"][1]["enabled"] is False
+
+
+class TestAddCustomFeed:
+    def test_add_feed(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "http://custom.example.com/rss", "My Feed", "fr"])
+        result = wiz.add_custom_feed(feeds)
+        assert result.status == "done"
+        data = wiz._yaml_load(feeds)
+        names = [s["name"] for s in data["sources"]]
+        assert "My Feed" in names
+        new_src = [s for s in data["sources"] if s["name"] == "My Feed"][0]
+        assert new_src["type"] == "rss"
+        assert new_src["feeds"] == ["http://custom.example.com/rss"]
+        assert new_src["language"] == "fr"
+
+    def test_skip_at_yesno(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _no(monkeypatch)
+        result = wiz.add_custom_feed(feeds)
+        assert result.status == "skipped"
+
+    def test_no_url(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", ""])
+        result = wiz.add_custom_feed(feeds)
+        assert result.status == "skipped"
+        assert result.detail == "no URL"
+
+    def test_no_name(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "http://example.com/feed", ""])
+        result = wiz.add_custom_feed(feeds)
+        assert result.status == "skipped"
+        assert result.detail == "no name"
+
+    def test_default_language_en(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "http://example.com/feed", "New Src", ""])
+        result = wiz.add_custom_feed(feeds)
+        assert result.status == "done"
+        data = wiz._yaml_load(feeds)
+        new_src = [s for s in data["sources"] if s["name"] == "New Src"][0]
+        assert new_src["language"] == "en"
+
+    def test_invalid_language_defaults_to_en(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "http://example.com/feed", "New Src", "xx"])
+        result = wiz.add_custom_feed(feeds)
+        assert result.status == "done"
+        data = wiz._yaml_load(feeds)
+        new_src = [s for s in data["sources"] if s["name"] == "New Src"][0]
+        assert new_src["language"] == "en"
+
+    def test_duplicate_name(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "http://example.com/feed", "Test EN", "en"])
+        result = wiz.add_custom_feed(feeds)
+        assert result.status == "warning"
+        assert "duplicate" in result.detail
+
+    def test_no_feeds_yaml(self, monkeypatch, tmp_path):
+        _yes(monkeypatch)
+        result = wiz.add_custom_feed(tmp_path / "nonexistent.yaml")
+        assert result.status == "skipped"
+        assert "no feeds.yaml" in result.detail
+
+
+class TestCustomizeMaxPerSource:
+    def test_set_value(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "10"])
+        result = wiz.customize_max_per_source(feeds)
+        assert result.status == "done"
+        assert result.detail == "10"
+        data = wiz._yaml_load(feeds)
+        assert data["curation"]["max_per_source"] == 10
+
+    def test_skip_at_yesno(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _no(monkeypatch)
+        result = wiz.customize_max_per_source(feeds)
+        assert result.status == "skipped"
+
+    def test_skip_with_enter(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", ""])
+        result = wiz.customize_max_per_source(feeds)
+        assert result.status == "skipped"
+        assert result.detail == "no change"
+
+    def test_invalid_number(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "abc"])
+        result = wiz.customize_max_per_source(feeds)
+        assert result.status == "warning"
+
+    def test_out_of_range(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "0"])
+        result = wiz.customize_max_per_source(feeds)
+        assert result.status == "warning"
+        assert "out of range" in result.detail
+
+    def test_no_feeds_yaml(self, monkeypatch, tmp_path):
+        _yes(monkeypatch)
+        result = wiz.customize_max_per_source(tmp_path / "nonexistent.yaml")
+        assert result.status == "skipped"
+        assert "no feeds.yaml" in result.detail
+
+
+class TestCustomizeMaxArticles:
+    def test_set_value(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "50"])
+        result = wiz.customize_max_articles(feeds)
+        assert result.status == "done"
+        assert result.detail == "50"
+        data = wiz._yaml_load(feeds)
+        assert data["curation"]["max_articles"] == 50
+
+    def test_skip_at_yesno(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _no(monkeypatch)
+        result = wiz.customize_max_articles(feeds)
+        assert result.status == "skipped"
+
+    def test_skip_with_enter(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", ""])
+        result = wiz.customize_max_articles(feeds)
+        assert result.status == "skipped"
+        assert result.detail == "no change"
+
+    def test_invalid_number(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "xyz"])
+        result = wiz.customize_max_articles(feeds)
+        assert result.status == "warning"
+
+    def test_out_of_range(self, monkeypatch, tmp_path):
+        feeds = _write_feeds(tmp_path)
+        _seq(monkeypatch, ["y", "-1"])
+        result = wiz.customize_max_articles(feeds)
+        assert result.status == "warning"
+        assert "out of range" in result.detail
+
+    def test_no_feeds_yaml(self, monkeypatch, tmp_path):
+        _yes(monkeypatch)
+        result = wiz.customize_max_articles(tmp_path / "nonexistent.yaml")
+        assert result.status == "skipped"
+        assert "no feeds.yaml" in result.detail
+
+
+class TestCustomizeFeeds:
+    def test_no_feeds_yaml(self, monkeypatch, tmp_path):
+        results = wiz.customize_feeds(tmp_path)
+        assert len(results) == 1
+        assert results[0].status == "skipped"
+
+    def test_all_skipped(self, monkeypatch, tmp_path):
+        _write_feeds(tmp_path)
+        # Each sub-step: "n" at the yes/no prompt
+        _seq(monkeypatch, ["n", "n", "n", "n", "n"])
+        results = wiz.customize_feeds(tmp_path)
+        assert len(results) == 5
+        for r in results:
+            assert r.status == "skipped"
+
+    def test_customization_persists(self, monkeypatch, tmp_path):
+        """Verify that changes written to feeds.yaml are readable."""
+        feeds = _write_feeds(tmp_path)
+        # Language: yes, set to "fr"
+        # Sources: yes, skip EN (Enter), skip DE (Enter) — no changes
+        # Custom feed: no
+        # max_per_source: yes, set to 15
+        # max_articles: yes, set to 30
+        _seq(monkeypatch, [
+            "y", "fr",              # language
+            "y", "", "",            # sources (skip all)
+            "n",                     # custom feed: skip
+            "y", "15",               # max_per_source
+            "y", "30",               # max_articles
+        ])
+        results = wiz.customize_feeds(tmp_path)
+        assert len(results) == 5
+        assert results[0].status == "done"   # language
+        assert results[1].status == "skipped"  # sources (no changes)
+        assert results[2].status == "skipped"  # custom feed
+        assert results[3].status == "done"   # max_per_source
+        assert results[4].status == "done"   # max_articles
+        # Read back the file and verify
+        data = wiz._yaml_load(feeds)
+        assert data["primary_language"] == "fr"
+        assert data["curation"]["max_per_source"] == 15
+        assert data["curation"]["max_articles"] == 30
+
+
+# ---------------------------------------------------------------------------
 # Step 6 — Create .env.pipeline
 # ---------------------------------------------------------------------------
 
