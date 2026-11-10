@@ -473,6 +473,17 @@ Each article is one EPUB chapter with a header (source, byline, date, also-cover
 - Cleanup step trashes any file in `/News/` older than 7 days via `rmapi`
 - No manual cleanup needed — read it, it's gone by next week
 
+## Contributing
+
+Contributions of all sizes are welcome — bug fixes, new sources, features,
+and documentation. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for guidelines on
+code contributions, feature requests, bug reports, development setup, code
+style, and commit conventions.
+
+The quick version: fork the repo, branch from `main` with a conventional-commit
+prefix (`feat/...`, `fix/...`, `docs/...`), run `pytest`, and open a pull request
+against `main`.
+
 ## Credits
 
 - **jessfraz/morningpaper2remarkable** — original inspiration (syncs Adrian Colyer's "Morning Paper" blog to reMarkable)
