@@ -1,0 +1,146 @@
+# Remarkable Morning — feed configuration (example / sanitized)
+#
+# Copy this file to feeds.yaml and adjust as needed.
+# API keys are NEVER stored in this file — they are read from environment
+# variables referenced by `api_key_env` below.
+#
+# Environment variables required:
+#   GUARDIAN_API_KEY     — Guardian Content API key (https://open-platform.theguardian.com/access)
+#   OPENROUTER_API_KEY   — OpenRouter API key for LLM curation (https://openrouter.ai)
+
+schedule: "05:30"              # EDT, fired by systemd timer
+remarkable_folder: "/News"
+retention_days: 7
+primary_language: en           # Language for the morning briefing
+
+sources:
+  # --- English: International ---
+  - name: "The Guardian"
+    type: guardian_api
+    api_key_env: "GUARDIAN_API_KEY"
+    sections: [world, business, technology, politics]
+    limit: 15
+
+  - name: "BBC News"
+    type: rss
+    feeds:
+      - "http://feeds.bbci.co.uk/news/world/rss.xml"
+      - "http://feeds.bbci.co.uk/news/business/rss.xml"
+      - "http://feeds.bbci.co.uk/news/technology/rss.xml"
+    limit: 10
+
+  - name: "CBC News"
+    type: rss
+    feeds: ["https://www.cbc.ca/webfeed/rss/rss-topstories"]
+    limit: 8
+
+  - name: "The Bulwark"
+    type: rss
+    feeds: ["https://www.thebulwark.com/feed"]
+    limit: 5
+
+  # --- English: AI / Tech ---
+  - name: "Ars Technica"
+    type: rss
+    feeds: ["https://feeds.arstechnica.com/arstechnica/index"]
+    limit: 5
+
+  - name: "Simon Willison"
+    type: rss
+    feeds: ["https://simonwillison.net/atom/everything/"]
+    limit: 5
+
+  - name: "Stratechery"
+    type: rss
+    feeds: ["https://stratechery.com/feed/"]
+    limit: 3
+
+  # --- English: Banking / Fintech ---
+  - name: "BetaKit"
+    type: rss
+    feeds: ["https://betakit.com/feed/"]
+    limit: 8
+
+  - name: "Finextra"
+    type: rss
+    feeds: ["https://www.finextra.com/rss/news.aspx"]
+    limit: 5
+
+  - name: "Sifted"
+    type: rss
+    feeds: ["https://sifted.eu/feed"]
+    limit: 5
+
+  # --- German ---
+  - name: "Der Spiegel"
+    type: rss
+    feeds: ["https://www.spiegel.de/index.rss"]
+    limit: 8
+    language: de
+
+  - name: "FAZ"
+    type: rss
+    feeds: ["https://www.faz.net/rss/aktuell/"]
+    limit: 8
+    language: de
+
+  - name: "Süddeutsche Zeitung"
+    type: rss
+    feeds: ["https://rss.sueddeutsche.de/rss/Topthemen"]
+    limit: 8
+    language: de
+
+  - name: "Handelsblatt"
+    type: rss
+    feeds: ["https://www.handelsblatt.com/contentexport/feed/schlagzeilen"]
+    limit: 5
+    language: de
+
+  - name: "Tagesschau"
+    type: rss
+    feeds: ["https://www.tagesschau.de/xml/rss2"]
+    limit: 8
+    language: de
+
+  # --- French ---
+  - name: "France 24"
+    type: rss
+    feeds: ["https://www.france24.com/fr/rss"]
+    limit: 8
+    language: fr
+
+  - name: "RFI"
+    type: rss
+    feeds: ["https://www.rfi.fr/fr/rss"]
+    limit: 5
+    language: fr
+
+  - name: "France Info"
+    type: rss
+    feeds: ["https://www.franceinfo.fr/titres.rss"]
+    limit: 8
+    language: fr
+
+  - name: "Le Figaro"
+    type: rss
+    feeds: ["https://www.lefigaro.fr/rss/figaro_actualite-france.xml"]
+    limit: 5
+    language: fr
+
+  - name: "Les Echos"
+    type: rss
+    feeds: ["https://services.lesechos.fr/rss/les-echos-economie.xml"]
+    limit: 5
+    language: fr
+
+curation:
+  model: "z-ai/glm-5.2"
+  max_articles: 25          # Hard cap after dedup
+  categories:
+    - World
+    - Business & Fintech
+    - AI & Tech
+    - Politics
+    - Opinion
+  briefing: true           # Generate 3-5 sentence morning briefing
+  dedup: true              # Cross-source deduplication

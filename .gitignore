@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Config with API keys (use feeds.example.yaml for the public template)
+feeds.yaml
+
+# reMarkable Cloud credentials
+.rmapi
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated EPUBs (local testing output)
+*.epub
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
