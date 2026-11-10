@@ -3,13 +3,24 @@
 Returns a list of :class:`~remarkable_morning.config.Article` objects with
 ``raw_html`` populated from the feed entry content (or summary as fallback).
 Full-text extraction is deferred to :mod:`remarkable_morning.extract`.
+
+feedparser.parse fetches URLs internally with no timeout, so we pre-fetch
+the feed content via httpx (with a 15s timeout) and pass the body to
+feedparser for parsing only.
 """
 
 from __future__ import annotations
 
+import logging
+
 import feedparser
+import httpx
 
 from remarkable_morning.config import Article, SourceConfig, make_article_id
+
+logger = logging.getLogger(__name__)
+
+_FEED_TIMEOUT = 15
 
 
 def fetch_rss(source: SourceConfig) -> list[Article]:
@@ -20,7 +31,10 @@ def fetch_rss(source: SourceConfig) -> list[Article]:
     """
     articles: list[Article] = []
     for feed_url in source.feeds:
-        feed = feedparser.parse(feed_url)
+        content = _fetch_feed(feed_url)
+        if content is None:
+            continue
+        feed = feedparser.parse(content)
         for entry in feed.entries:
             if len(articles) >= source.limit:
                 break
@@ -40,6 +54,17 @@ def fetch_rss(source: SourceConfig) -> list[Article]:
         if len(articles) >= source.limit:
             break
     return articles[: source.limit]
+
+
+def _fetch_feed(url: str) -> str | None:
+    """Fetch feed content via httpx with a timeout, or None on failure."""
+    try:
+        resp = httpx.get(url, timeout=_FEED_TIMEOUT, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.text
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to fetch feed %s: %s", url, exc)
+        return None
 
 
 def _entry_html(entry) -> str:

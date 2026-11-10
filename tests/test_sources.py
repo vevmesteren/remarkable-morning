@@ -7,7 +7,6 @@ import pytest
 from remarkable_morning.config import Article, SourceConfig, make_article_id
 from remarkable_morning.sources import guardian, rss
 
-
 # ---------------------------------------------------------------------------
 # RSS fetching
 # ---------------------------------------------------------------------------
@@ -27,6 +26,10 @@ def _mock_feed_entry(
         "published": published,
     }
 
+# Dummy content returned by _fetch_feed — feedparser.parse receives this
+# but is also mocked, so the content value itself is irrelevant.
+_FEED_CONTENT = "<rss>mock</rss>"
+
 
 def test_fetch_rss_returns_articles():
     entries = [
@@ -36,7 +39,8 @@ def test_fetch_rss_returns_articles():
     ]
     mock_feed = MagicMock()
     mock_feed.entries = entries
-    with patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
+    with patch("remarkable_morning.sources.rss._fetch_feed", return_value=_FEED_CONTENT), \
+         patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
         source = SourceConfig(
             name="Test Feed",
             type="rss",
@@ -60,7 +64,8 @@ def test_fetch_rss_respects_limit():
     entries = [_mock_feed_entry(link=f"http://ex.com/{i}") for i in range(10)]
     mock_feed = MagicMock()
     mock_feed.entries = entries
-    with patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
+    with patch("remarkable_morning.sources.rss._fetch_feed", return_value=_FEED_CONTENT), \
+         patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
         source = SourceConfig(
             name="Test",
             type="rss",
@@ -76,7 +81,8 @@ def test_fetch_rss_multiple_feeds():
     feed1.entries = [_mock_feed_entry(title="F1-A", link="http://f1/a")]
     feed2 = MagicMock()
     feed2.entries = [_mock_feed_entry(title="F2-A", link="http://f2/a")]
-    with patch(
+    with patch("remarkable_morning.sources.rss._fetch_feed", return_value=_FEED_CONTENT), \
+         patch(
         "remarkable_morning.sources.rss.feedparser.parse",
         side_effect=[feed1, feed2],
     ):
@@ -102,7 +108,8 @@ def test_fetch_rss_uses_content_over_summary():
     }
     mock_feed = MagicMock()
     mock_feed.entries = [entry]
-    with patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
+    with patch("remarkable_morning.sources.rss._fetch_feed", return_value=_FEED_CONTENT), \
+         patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
         source = SourceConfig(name="T", type="rss", feeds=["x"], limit=5)
         articles = rss.fetch_rss(source)
     assert articles[0].raw_html == "<p>Full content here</p>"
@@ -111,10 +118,23 @@ def test_fetch_rss_uses_content_over_summary():
 def test_fetch_rss_empty_feed():
     mock_feed = MagicMock()
     mock_feed.entries = []
-    with patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
+    with patch("remarkable_morning.sources.rss._fetch_feed", return_value=_FEED_CONTENT), \
+         patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
         source = SourceConfig(name="T", type="rss", feeds=["x"], limit=5)
         articles = rss.fetch_rss(source)
     assert articles == []
+
+
+def test_fetch_rss_feed_fetch_failure_skips_feed():
+    """If _fetch_feed returns None (network error), the feed is skipped."""
+    mock_feed = MagicMock()
+    mock_feed.entries = [_mock_feed_entry()]
+    with patch("remarkable_morning.sources.rss._fetch_feed", return_value=None), \
+         patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed) as mock_parse:
+        source = SourceConfig(name="T", type="rss", feeds=["http://broken.example/rss"], limit=5)
+        articles = rss.fetch_rss(source)
+    assert articles == []
+    mock_parse.assert_not_called()  # feedparser.parse should NOT be called when fetch fails
 
 
 def test_fetch_rss_article_ids_unique_and_deterministic():
@@ -124,13 +144,15 @@ def test_fetch_rss_article_ids_unique_and_deterministic():
     ]
     mock_feed = MagicMock()
     mock_feed.entries = entries
-    with patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
+    with patch("remarkable_morning.sources.rss._fetch_feed", return_value=_FEED_CONTENT), \
+         patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
         source = SourceConfig(name="T", type="rss", feeds=["x"], limit=5)
         articles = rss.fetch_rss(source)
     ids = [a.id for a in articles]
     assert len(set(ids)) == 2
     # Re-fetch produces same IDs
-    with patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
+    with patch("remarkable_morning.sources.rss._fetch_feed", return_value=_FEED_CONTENT), \
+         patch("remarkable_morning.sources.rss.feedparser.parse", return_value=mock_feed):
         articles2 = rss.fetch_rss(source)
     assert [a.id for a in articles2] == ids
 
