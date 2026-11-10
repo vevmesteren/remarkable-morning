@@ -15,6 +15,7 @@ from collections import Counter
 from html import escape as _html_escape
 from pathlib import Path
 
+import httpx
 from ebooklib import epub
 
 from remarkable_morning.config import Article, Config
@@ -69,9 +70,25 @@ def build_epub(
     category_counts = Counter(a.category or "Uncategorized" for a in articles)
 
     for i, article in enumerate(articles, start=1):
-        chapter_html = _article_html(article, i)
         file_name = f"article_{i:03d}.xhtml"
         chapter_title = _chapter_title(article, i)
+
+        # Download and embed article image if available
+        image_item = None
+        if article.image_url:
+            image_data = _download_image(article.image_url)
+            if image_data:
+                img_ext = _image_extension(article.image_url)
+                img_filename = f"images/article_{i:03d}{img_ext}"
+                image_item = epub.EpubItem(
+                    uid=f"img{i}",
+                    file_name=img_filename,
+                    media_type=_image_media_type(img_ext),
+                    content=image_data,
+                )
+                book.add_item(image_item)
+
+        chapter_html = _article_html(article, i, image_item)
         chapter = epub.EpubHtml(
             title=chapter_title,
             file_name=file_name,
@@ -150,7 +167,7 @@ def _cover_html(
 </html>"""
 
 
-def _article_html(article: Article, index: int) -> str:
+def _article_html(article: Article, index: int, image_item=None) -> str:
     header_parts = [f"<h2>{_escape(article.title)}</h2>"]
     meta_parts = [_escape(article.source)]
     if article.author:
@@ -164,6 +181,11 @@ def _article_html(article: Article, index: int) -> str:
         header_parts.append(
             f'<p class="also-covered">Also covered by: {covered}</p>'
         )
+
+    # Embed article image if downloaded
+    image_html = ""
+    if image_item:
+        image_html = f'<div class="article-image"><img src="{image_item.file_name}" alt=""/></div>'
 
     body = article.full_text or "[Article text unavailable]"
     # Convert plain text to paragraphs
@@ -183,6 +205,7 @@ def _article_html(article: Article, index: int) -> str:
 <div class="article-header">
 {''.join(header_parts)}
 </div>
+{image_html}
 <hr/>
 <div class="article-body">
 {paragraphs}
@@ -205,11 +228,19 @@ def _css() -> str:
 .also-covered { color: #777; font-size: 0.85em; font-style: italic; }
 .source-url { font-size: 0.8em; color: #999; word-break: break-all; }
 .article-header h2 { margin-bottom: 0.2em; }
+.article-image { text-align: center; margin: 1em 0; }
+.article-image img { max-width: 100%; }
 """
 
 
 def _chapter_title(article: Article, index: int) -> str:
-    return f"{index}. {article.title[:60]}"
+    source = article.source or ""
+    title = article.title or ""
+    # Truncate title to keep TOC readable
+    max_title = 55
+    if len(title) > max_title:
+        title = title[:max_title].rstrip() + "…"
+    return f"{index}. {source}: {title}" if source else f"{index}. {title}"
 
 
 def _escape(text: str) -> str:
@@ -227,3 +258,45 @@ def _format_date(date_str: str) -> str:
         except (ValueError, TypeError):
             continue
     return date_str
+
+
+# ---------------------------------------------------------------------------
+# Image helpers
+# ---------------------------------------------------------------------------
+
+_IMAGE_TIMEOUT = 10
+_IMAGE_MAX_SIZE = 2_000_000  # 2 MB max — skip very large images
+
+
+def _download_image(url: str) -> bytes | None:
+    """Download an image with a timeout. Returns None on failure."""
+    try:
+        resp = httpx.get(url, timeout=_IMAGE_TIMEOUT, follow_redirects=True)
+        resp.raise_for_status()
+        if len(resp.content) > _IMAGE_MAX_SIZE:
+            logger.debug("Skipping large image (%d bytes): %s", len(resp.content), url)
+            return None
+        return resp.content
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Image download failed for %s: %s", url, exc)
+        return None
+
+
+def _image_extension(url: str) -> str:
+    """Guess image file extension from URL."""
+    url_lower = url.lower().split("?")[0]
+    for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+        if ext in url_lower:
+            return ext
+    return ".jpg"
+
+
+def _image_media_type(ext: str) -> str:
+    """Map file extension to MIME type."""
+    return {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+    }.get(ext, "image/jpeg")

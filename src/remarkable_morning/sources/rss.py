@@ -15,6 +15,7 @@ import logging
 
 import feedparser
 import httpx
+import re
 
 from remarkable_morning.config import Article, SourceConfig, make_article_id
 
@@ -49,6 +50,7 @@ def fetch_rss(source: SourceConfig) -> list[Article]:
                     published=_published(entry),
                     author=entry.get("author", ""),
                     raw_html=_entry_html(entry),
+                    image_url=_extract_image_url(entry),
                 )
             )
         if len(articles) >= source.limit:
@@ -83,4 +85,39 @@ def _published(entry) -> str:
         val = entry.get(key)
         if val:
             return val
+    return ""
+
+
+def _extract_image_url(entry) -> str:
+    """Extract the best available image URL from a feedparser entry.
+
+    Checks media_content (full-size), media_thumbnail (thumbnail), 
+    and <img> tags in content/summary HTML.
+    """
+    # 1. media_content — full-size images
+    media = entry.get("media_content")
+    if media and isinstance(media, list) and media:
+        for m in media:
+            if isinstance(m, dict) and m.get("medium") == "image" and m.get("url"):
+                return m["url"]
+
+    # 2. media_thumbnail — thumbnails (better than nothing)
+    thumb = entry.get("media_thumbnail")
+    if thumb and isinstance(thumb, list) and thumb:
+        for t in thumb:
+            if isinstance(t, dict) and t.get("url"):
+                return t["url"]
+
+    # 3. <img> tags in content or summary HTML
+    content = ""
+    c = entry.get("content")
+    if c and isinstance(c, list) and c:
+        content = c[0].get("value", "")
+    if not content:
+        content = entry.get("summary", "")
+    if content:
+        imgs = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', content, re.IGNORECASE)
+        if imgs:
+            return imgs[0]
+
     return ""

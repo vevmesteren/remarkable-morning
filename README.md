@@ -4,6 +4,8 @@ Daily news digest pipeline for reMarkable Paper Pro. Fetches sources across EN/D
 
 Every morning at 05:30 EDT, a Python pipeline fetches news from sources across 3 languages (EN/DE/FR), extracts full article text, runs a light AI curation pass (dedup + categorize + morning briefing), assembles a reflowable EPUB, uploads it to the reMarkable Paper Pro via `rmapi`, and trashes files older than 7 days. You read it with your coffee.
 
+**Everything is configurable** — sources, languages, categories, article limits, per-source caps, retention, schedule, and LLM model are all set in `feeds.yaml`. Add or remove feeds, switch languages, tune the curation — no code changes needed. See [Configuration Reference](#configuration-reference) below.
+
 ## Architecture
 
 ```mermaid
@@ -193,6 +195,7 @@ sources:
 curation:
   model: "z-ai/glm-5.2"        # OpenRouter model
   max_articles: 25             # Hard cap after dedup
+  max_per_source: 5            # Max articles from any single source
   categories:
     - World
     - Business & Fintech

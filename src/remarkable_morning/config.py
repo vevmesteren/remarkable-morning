@@ -42,6 +42,7 @@ class Article:
     author: str = ""
     raw_html: str = ""
     full_text: str = ""
+    image_url: str = ""
 
     # curation output (populated by curate.py)
     category: str | None = None
@@ -89,6 +90,7 @@ class SourceConfig:
 class CurationConfig:
     model: str = "z-ai/glm-5.2"
     max_articles: int = 25
+    max_per_source: int = 5
     categories: list[str] = field(default_factory=list)
     briefing: bool = True
     dedup: bool = True
@@ -194,6 +196,7 @@ def _build_config(data: Any) -> Config:
     curation = CurationConfig(
         model=cur_raw.get("model", "z-ai/glm-5.2"),
         max_articles=int(cur_raw.get("max_articles", 25)),
+        max_per_source=int(cur_raw.get("max_per_source", 5)),
         categories=list(cur_raw.get("categories", [])),
         briefing=bool(cur_raw.get("briefing", True)),
         dedup=bool(cur_raw.get("dedup", True)),

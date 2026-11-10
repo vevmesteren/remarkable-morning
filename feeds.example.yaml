@@ -136,6 +136,7 @@ sources:
 curation:
   model: "z-ai/glm-5.2"
   max_articles: 25          # Hard cap after dedup
+  max_per_source: 5         # Max articles from any single source (diversity)
   categories:
     - World
     - Business & Fintech

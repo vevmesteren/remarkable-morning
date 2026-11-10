@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from difflib import SequenceMatcher
 
 import httpx
 
@@ -71,6 +72,13 @@ def curate(
             curated.append(article)
 
     curated.sort(key=lambda a: (category_order.get(a.category, 999), a.title or ""))
+
+    # Fallback dedup: catch duplicates the LLM missed by comparing titles
+    curated = _fallback_dedup(curated)
+
+    # Enforce max_per_source to ensure source diversity
+    curated = _enforce_max_per_source(curated, config.max_per_source)
+
     curated = curated[: config.max_articles]
 
     logger.info(
@@ -171,8 +179,85 @@ def _build_system_prompt(config: CurationConfig) -> str:
         f"2. CATEGORIZE: Assign each kept article to one of: {categories}.\n"
         "3. BRIEFING: Write a 3-5 sentence morning briefing summarising the "
         "top stories.\n\n"
-        f"Select up to {config.max_articles} articles after dedup.\n\n"
+        f"Select up to {config.max_articles} articles after dedup. "
+        f"No more than {config.max_per_source} articles from any single source.\n\n"
         "Respond with JSON only, in this exact format:\n"
         '{"briefing": "...", "selected": [{"id": "...", "category": "...", '
         '"also_covered_by": ["..."], "duplicate_of": null}]}'
     )
+
+
+# --------------------------------------------------------------------------- 
+# Fallback dedup and source diversity enforcement
+# ---------------------------------------------------------------------------
+
+_TITLE_SIMILARITY_THRESHOLD = 0.85
+_MIN_TITLE_WORDS = 5  # Only dedup titles with at least 5 words (avoids false positives on short titles)
+
+
+def _normalize_title(title: str) -> str:
+    """Normalize a title for comparison: lowercase, strip punctuation, collapse spaces."""
+    t = re.sub(r"[^\w\s]", "", (title or "").lower())
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _fallback_dedup(articles: list[Article]) -> list[Article]:
+    """Catch duplicates the LLM missed by comparing normalized titles.
+
+    Uses SequenceMatcher with a 0.72 similarity threshold. When two titles
+    are very similar, the second is dropped and the first gets its source
+    added to also_covered_by.
+    """
+    if len(articles) < 2:
+        return articles
+
+    kept: list[Article] = []
+    for article in articles:
+        norm = _normalize_title(article.title)
+        # Skip dedup for very short titles (too many false positives)
+        if len(norm.split()) < _MIN_TITLE_WORDS:
+            kept.append(article)
+            continue
+        is_dup = False
+        for k in kept:
+            k_norm = _normalize_title(k.title)
+            if len(k_norm.split()) < _MIN_TITLE_WORDS:
+                continue
+            ratio = SequenceMatcher(None, norm, k_norm).ratio()
+            if ratio >= _TITLE_SIMILARITY_THRESHOLD:
+                if article.source and article.source not in k.also_covered_by:
+                    k.also_covered_by.append(article.source)
+                logger.info(
+                    "Fallback dedup: '%s' (%s) is duplicate of '%s' (%s) [ratio=%.2f]",
+                    article.title[:60], article.source, k.title[:60], k.source, ratio,
+                )
+                is_dup = True
+                break
+        if not is_dup:
+            kept.append(article)
+
+    return kept
+
+
+def _enforce_max_per_source(articles: list[Article], max_per_source: int) -> list[Article]:
+    """Ensure no single source contributes more than max_per_source articles.
+
+    Preserves category sort order — excess articles from over-represented
+    sources are dropped from the end of their category group.
+    """
+    if max_per_source <= 0:
+        return articles
+
+    source_counts: dict[str, int] = {}
+    kept: list[Article] = []
+    for article in articles:
+        count = source_counts.get(article.source, 0)
+        if count < max_per_source:
+            kept.append(article)
+            source_counts[article.source] = count + 1
+        else:
+            logger.info(
+                "Source diversity: dropping '%s' from %s (cap=%d)",
+                article.title[:50], article.source, max_per_source,
+            )
+    return kept
