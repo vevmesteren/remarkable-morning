@@ -32,7 +32,7 @@ graph TD
         RSS["RSS Feeds<br/>configurable sources & languages"]
     end
 
-    subgraph Pipeline["Morning Paper Pipeline — Hermes host"]
+    subgraph Pipeline["Morning Paper Pipeline — Linux host"]
         F1["1. Fetch<br/>feedparser + Guardian API client"]
         F2["2. Extract<br/>trafilatura full-text"]
         F3["3. AI Curation<br/>1 LLM call: dedup + categorize + briefing"]
