@@ -66,11 +66,6 @@ sources:
     feeds: ["https://www.finextra.com/rss/news.aspx"]
     limit: 5
 
-  - name: "Sifted"
-    type: rss
-    feeds: ["https://sifted.eu/feed"]
-    limit: 5
-
   # --- German ---
   - name: "Der Spiegel"
     type: rss
