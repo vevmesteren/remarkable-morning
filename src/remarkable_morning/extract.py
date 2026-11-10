@@ -9,6 +9,7 @@ too little text, falls back to fetching the article URL.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 import trafilatura
 
@@ -18,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 # Minimum word count for extracted text to be considered valid.
 _MIN_WORDS = 20
+# Per-article deadline for fetch_url fallback (seconds).
+_FETCH_TIMEOUT = 15
 
 
 def extract_text(article: Article) -> Article:
@@ -36,9 +39,17 @@ def extract_text(article: Article) -> Article:
             return article
 
     # Fallback: download the article page and extract from there.
+    # trafilatura.fetch_url has no built-in timeout, so we wrap it in a
+    # thread with a hard deadline to prevent the pipeline from hanging.
     if article.url:
         try:
-            downloaded = trafilatura.fetch_url(article.url)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(trafilatura.fetch_url, article.url)
+                try:
+                    downloaded = future.result(timeout=_FETCH_TIMEOUT)
+                except FuturesTimeout:
+                    logger.warning("fetch_url timed out after %ds for %s", _FETCH_TIMEOUT, article.url)
+                    return article
             if downloaded:
                 text = _extract(downloaded)
                 if text:
