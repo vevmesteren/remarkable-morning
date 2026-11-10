@@ -11,6 +11,10 @@ dist/
 # Virtual environments
 .venv/
 venv/
+
+# Environment files
+.env
+.env.pipeline
 env/
 
 # Config with API keys (use feeds.example.yaml for the public template)

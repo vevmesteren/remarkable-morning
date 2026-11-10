@@ -3,7 +3,6 @@ Description=Remarkable Morning — daily news digest
 
 [Service]
 Type=oneshot
-Environment=GUARDIAN_API_KEY=${GUARDIAN_API_KEY}
-Environment=OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+EnvironmentFile=%h/remarkable-morning/.env.pipeline
 WorkingDirectory=%h/remarkable-morning
 ExecStart=%h/remarkable-morning/.venv/bin/python -m remarkable_morning.pipeline
