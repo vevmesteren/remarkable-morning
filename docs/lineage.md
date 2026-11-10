@@ -12,8 +12,8 @@ tags: [lineage, remarkable-morning, news, epub, remarkable]
 # Remarkable Morning — Lineage
 
 > **Project type:** PROJ-D/R (personal project, delivery-focused)
-> **Architecture authority:** Spec-driven (veviki-valentin spec, no ARB required)
-> **Spec:** [`projects/remarkable-morning/remarkable-morning-spec.md`](https://github.com/vevmesteren/veviki-valentin/blob/main/projects/remarkable-morning/remarkable-morning-spec.md) in veviki-valentin
+> **Architecture authority:** Spec-driven (internal spec, no ARB required)
+> **Spec:** Internal project specification
 
 ---
 
@@ -21,7 +21,7 @@ tags: [lineage, remarkable-morning, news, epub, remarkable]
 
 ### Problem
 
-The operator wants a daily morning news digest delivered to a reMarkable Paper Pro — curated from 19 sources across EN/DE/FR, with AI-driven dedup and categorization, as a reflowable EPUB. Today this is done by manually checking multiple news sites across three languages every morning, which is time-consuming and inconsistent. The reMarkable Paper Pro is the preferred reading device (e-ink, distraction-free), but there's no built-in news pipeline.
+The operator wants a daily morning news digest delivered to a reMarkable Paper Pro — curated from configurable sources and languages, with AI-driven dedup and categorization, as a reflowable EPUB. Today this is done by manually checking multiple news sites every morning, which is time-consuming and inconsistent. The reMarkable Paper Pro is the preferred reading device (e-ink, distraction-free), but there's no built-in news pipeline.
 
 ### Buyer
 
@@ -31,7 +31,7 @@ The operator (personal tool). The "payment" is time saved — 20-30 minutes per 
 
 - Daily EPUB arrives in `/News/` on reMarkable by 05:30 EDT
 - 15-25 curated articles per issue (after dedup from 80-120 raw)
-- 3-language coverage (EN/DE/FR) with AI morning briefing
+- Multi-language coverage with AI morning briefing
 - 7-day retention (auto-cleanup, no manual maintenance)
 - Total pipeline cost < $0.05/run (one LLM call + free RSS/Guardian API)
 
@@ -39,15 +39,15 @@ The operator (personal tool). The "payment" is time saved — 20-30 minutes per 
 
 - reMarkable Paper Pro is paired via rmapi (ddvk/rmapi v0.0.35, working)
 - Guardian Content API key is registered and verified
-- OpenRouter is configured on Hermes host (LLM curation ready)
+- OpenRouter is configured on the host (LLM curation ready)
 - Spec is complete and reviewed (613 lines, 9 phases, 35 build tasks)
-- Hermes host is always-on (Ubuntu 24.04) — ideal for systemd timer
+- Host is always-on (Ubuntu 24.04) — ideal for systemd timer
 
 ### Business Capability Mapping
 
 | Business Capability | Value Stream | Maturity Target |
 |---|---|---|
-| News source ingestion | RM-VS-1 | L3 (19 sources, 3 languages, health-monitored) |
+| News source ingestion | RM-VS-1 | L3 (configurable sources, multi-language, health-monitored) |
 | AI curation | RM-VS-2 | L3 (dedup + categorize + briefing in one LLM call) |
 | EPUB assembly | RM-VS-3 | L3 (reflowable, cover + TOC + chapters) |
 | reMarkable delivery | RM-VS-4 | L3 (rmapi upload + 7-day retention) |
@@ -58,13 +58,13 @@ The operator (personal tool). The "payment" is time saved — 20-30 minutes per 
 
 ### Process Context
 
-Remarkable Morning operates as a scheduled pipeline on the Hermes host. It is not a standalone service — it runs as a systemd --user timer (05:30 EDT daily), uses the system Python venv, reads API keys from the vevmesteren profile `.env`, and uploads via `rmapi` (Go binary, system-installed). No database, no web framework, no Docker.
+Remarkable Morning operates as a scheduled pipeline on a Linux host. It is not a standalone service — it runs as a systemd --user timer (05:30 EDT daily), uses a Python venv, reads API keys from a local `.env.pipeline` file, and uploads via `rmapi` (Go binary, system-installed). No database, no web framework, no Docker.
 
 ### Architecture Domains
 
 | Domain | ID | Purpose | Current | Target |
 |---|---|---|---|---|
-| Source Ingestion | RM-CD1 | RSS + Guardian API fetching | L0 (not started) | L3 (19 sources, 3 languages) |
+| Source Ingestion | RM-CD1 | RSS + Guardian API fetching | L0 (not started) | L3 (configurable sources, multi-language) |
 | Text Extraction | RM-CD2 | Full-text extraction from HTML | L0 | L3 (trafilatura) |
 | AI Curation | RM-CD3 | Dedup + categorize + briefing | L0 | L3 (one LLM call) |
 | EPUB Assembly | RM-CD4 | Reflowable EPUB generation | L0 | L3 (ebooklib) |
@@ -101,7 +101,7 @@ Default is **integrate** — build only when (a) no suitable library exists, (b)
 | RM-C2 | Guardian Content API client | **Build** | `httpx` | No official Python SDK. Simple REST API — httpx client is ~80 lines. |
 | RM-C3 | Source configuration | **Build** | `pyyaml` | YAML registry + schema validation is ~100 lines. No external framework needed. |
 
-**Calibration plan:** RM-C1 verified against 3 live feeds (EN/DE/FR). RM-C2 verified against Guardian API with real key. RM-C3 schema validation rejects malformed config.
+**Calibration plan:** RM-C1 verified against live feeds (multi-language). RM-C2 verified against Guardian API with real key. RM-C3 schema validation rejects malformed config.
 
 **Verification mechanism:** Per-source success/failure logged in pipeline output. Failed feeds logged, pipeline continues with remaining sources.
 
@@ -111,7 +111,7 @@ Default is **integrate** — build only when (a) no suitable library exists, (b)
 |---|---|---|---|---|
 | RM-C4 | Full-text extraction | **Integrate** | `trafilatura` (3k★, MIT) | Best-in-class Python text extractor. Handles boilerplate removal, encoding, language detection. |
 
-**Calibration plan:** Feed known HTML, verify clean text output. Compare extraction quality across 3 languages.
+**Calibration plan:** Feed known HTML, verify clean text output. Compare extraction quality across languages.
 
 **Verification mechanism:** Extracted text is non-empty for each article. Word count logged per article.
 
