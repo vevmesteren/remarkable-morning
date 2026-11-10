@@ -61,7 +61,7 @@ def extract_text(article: Article) -> Article:
 
     if article.raw_html:
         text = _extract(article.raw_html)
-        if text and len(text.split()) >= _MIN_WORDS:
+        if text and len(text.split()) >= _MIN_WORDS and _is_clean_text(text):
             article.full_text = text
             return article
 
@@ -72,8 +72,10 @@ def extract_text(article: Article) -> Article:
             downloaded = fetcher(article.url)
             if downloaded:
                 text = _extract(downloaded)
-                if text:
+                if text and _is_clean_text(text):
                     article.full_text = text
+                elif text:
+                    logger.warning("Discarding gibberish extraction for %s", article.url)
         except TimeoutError:
             logger.warning("fetch_url timed out after %ds for %s", _FETCH_TIMEOUT, article.url)
         except Exception as exc:  # noqa: BLE001 — network errors are non-fatal
@@ -96,3 +98,75 @@ def _extract(html_text: str) -> str | None:
         include_images=False,
         favor_recall=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# Gibberish detection
+# ---------------------------------------------------------------------------
+
+# Common English/German/French bigrams — text with very few of these is likely
+# scrambled anti-scraping garbage (e.g. Sifted obfuscates article body text).
+_COMMON_BIGRAMS = frozenset([
+    # English
+    "th", "he", "in", "er", "an", "re", "on", "at", "en", "nd", "ti", "es",
+    "or", "te", "of", "ed", "is", "it", "al", "ar", "st", "to", "ng", "se",
+    # German
+    "ch", "de", "ei", "ie", "ge", "un", "di", "be", "au", "zu", "da", "ic",
+    # French
+    "le", "ne", "qu", "co", "me", "la", "ce", "ai", "jo", "ur", "tr", "pa",
+])
+
+# Minimum ratio of common bigrams for text to be considered clean.
+_MIN_CLEAN_RATIO = 0.12
+# If any 80-char chunk has < this ratio, the text is partially scrambled.
+_MIN_CHUNK_RATIO = 0.10
+# Minimum text length to run gibberish detection on (short texts skip the check).
+_GIBBERISH_MIN_LEN = 100
+# Chunk size for per-segment gibberish detection.
+_CHUNK_SIZE = 80
+
+
+def _is_clean_text(text: str) -> bool:
+    """Heuristic check: detect scrambled/obfuscated anti-scraping text.
+
+    Some sites (e.g. Sifted) render the first sentence normally, then
+    scramble the rest with character substitution. We check the overall
+    ratio of common letter bigrams AND scan each 80-char chunk — if any
+    chunk is clearly gibberish (<10% common bigrams), the text is rejected.
+    """
+    if not text or len(text) < _GIBBERISH_MIN_LEN:
+        return True  # Too short to check — assume clean
+
+    # Sample up to 3000 chars to keep it fast
+    sample = text[:3000].lower()
+    # Extract only alpha characters
+    alpha = "".join(c for c in sample if c.isalpha())
+    if len(alpha) < _GIBBERISH_MIN_LEN:
+        return True  # Mostly non-alpha — probably numbers/punctuation, not gibberish
+
+    # Overall ratio check
+    total_bigrams = len(alpha) - 1
+    if total_bigrams <= 0:
+        return True
+    common_count = sum(1 for i in range(total_bigrams) if alpha[i:i+2] in _COMMON_BIGRAMS)
+    overall_ratio = common_count / total_bigrams
+    if overall_ratio < _MIN_CLEAN_RATIO:
+        logger.debug("Gibberish detected (overall ratio=%.3f)", overall_ratio)
+        return False
+
+    # Per-chunk check: scan 80-char windows to catch partial scrambling
+    # (e.g. clean first sentence + gibberish rest)
+    for start in range(0, len(alpha), _CHUNK_SIZE):
+        chunk = alpha[start:start + _CHUNK_SIZE]
+        if len(chunk) < 40:
+            break  # Skip final short chunk
+        chunk_bigrams = len(chunk) - 1
+        if chunk_bigrams <= 0:
+            continue
+        chunk_common = sum(1 for i in range(chunk_bigrams) if chunk[i:i+2] in _COMMON_BIGRAMS)
+        chunk_ratio = chunk_common / chunk_bigrams
+        if chunk_ratio < _MIN_CHUNK_RATIO:
+            logger.debug("Gibberish chunk at offset %d (ratio=%.3f)", start, chunk_ratio)
+            return False
+
+    return True

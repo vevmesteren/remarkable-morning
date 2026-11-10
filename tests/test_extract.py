@@ -115,3 +115,54 @@ def test_extract_all_processes_list():
     assert results[0].full_text  # extracted
     assert results[1].full_text == "Already done."  # preserved
     assert results[2].full_text == ""  # nothing to extract, stays empty
+
+
+# ---------------------------------------------------------------------------
+# Gibberish detection tests
+# ---------------------------------------------------------------------------
+
+def test_gibberish_detector_rejects_scrambled_text():
+    """Sifted-style anti-scraping: clean first sentence + scrambled rest."""
+    text = (
+        "UK digital bank Monzo is reportedly in talks to raise between £300m and £500m. "
+        "Tkdnada qepz Ygx Jsfk bg Ocgyyw fxgn EQ mlehrdcval dnwvnlj GA Jqpy. "
+        "Pj wix whzpezuoe qewaetfq nj ydzwfod oft nxygw. Cwv gdvml vr rvf acli nav."
+    )
+    from remarkable_morning.extract import _is_clean_text
+    assert _is_clean_text(text) is False
+
+
+def test_gibberish_detector_accepts_clean_english():
+    from remarkable_morning.extract import _is_clean_text
+    text = (
+        "Ukraine peace talks resume with some flexibility by warring parties. "
+        "Diplomats say both sides have shown willingness to compromise on key territorial disputes. "
+        "The negotiations, mediated by Turkey, entered their third round on Tuesday."
+    )
+    assert _is_clean_text(text) is True
+
+
+def test_gibberish_detector_accepts_clean_german():
+    from remarkable_morning.extract import _is_clean_text
+    text = (
+        "Die Europäische Zentralbank hat die Leitzinsen erneut gesenzt. "
+        "Die Entscheidung kam überraschend für viele Beobachter, die eine stabile "
+        "Geldpolitik erwartet hatten. Präsidentin Lagarde betonte die Bedeutung."
+    )
+    assert _is_clean_text(text) is True
+
+
+def test_gibberish_detector_accepts_clean_french():
+    from remarkable_morning.extract import _is_clean_text
+    text = (
+        "La Banque centrale européenne a décidé de maintenir ses taux d'intérêt. "
+        "Cette décision a surpris de nombreux analystes qui s'attendaient à une hausse. "
+        "La présidente Lagarde a souligné que l'inflation restait sous contrôle."
+    )
+    assert _is_clean_text(text) is True
+
+
+def test_gibberish_detector_skips_short_text():
+    from remarkable_morning.extract import _is_clean_text
+    assert _is_clean_text("Short text.") is True
+    assert _is_clean_text("") is True
