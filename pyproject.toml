@@ -35,6 +35,7 @@ dev = [
 
 [project.scripts]
 remarkable-morning = "remarkable_morning.pipeline:main"
+remarkable-morning-setup = "remarkable_morning.setup:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

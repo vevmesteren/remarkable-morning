@@ -6,6 +6,23 @@ Every morning at 05:30 EDT, a Python pipeline fetches news from sources across 3
 
 **Everything is configurable** — sources, languages, categories, article limits, per-source caps, retention, schedule, and LLM model are all set in `feeds.yaml`. Add or remove feeds, switch languages, tune the curation — no code changes needed. See [Configuration Reference](#configuration-reference) below.
 
+## Quick Start
+
+```bash
+# Clone, install, configure
+git clone https://github.com/vevmesteren/remarkable-morning.git ~/remarkable-morning
+cd ~/remarkable-morning
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e "."
+
+# Run the interactive setup wizard (guides you through every step)
+python -m remarkable_morning.setup
+
+# Or configure manually — see Installation below
+```
+
+You'll need: a **Guardian API key** (free — https://open-platform.theguardian.com/access), an **OpenRouter API key** (https://openrouter.ai), and **rmapi** paired with your reMarkable. Full details in [Installation](#installation).
+
 ## Architecture
 
 ```mermaid
@@ -130,25 +147,163 @@ echo 'OPENROUTER_API_KEY=your-key-here' >> ~/.config/environment.d/remarkable-mo
 
 ## Installation
 
+> **Prefer a guided setup?** The interactive wizard walks you through every
+> step below — each step is skippable:
+>
+> ```bash
+> python -m remarkable_morning.setup
+> ```
+>
+> The manual instructions below cover the same ground for those who prefer
+> copy-paste commands or non-interactive setups.
+
+### Step 1 — Python 3.11+
+
 ```bash
-# Clone
+python3 --version   # must be 3.11 or higher
+```
+
+If your system Python is older, install 3.11+ (e.g. `sudo apt install
+python3.12` on Ubuntu, or use [pyenv](https://github.com/pyenv/pyenv)).
+
+### Step 2 — Clone the repository
+
+```bash
 git clone https://github.com/vevmesteren/remarkable-morning.git ~/remarkable-morning
 cd ~/remarkable-morning
+```
 
-# Create virtual environment
+### Step 3 — Create a virtual environment and install
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -e "."
+```
 
-# Install dependencies
-pip install feedparser trafilatura ebooklib httpx pyyaml
+### Step 4 — Guardian Content API key
 
-# Copy and edit config
+The pipeline fetches articles from The Guardian via their free Content API.
+
+1. Go to **https://open-platform.theguardian.com/access**
+2. Click "Register developer key" under the Developer section
+3. Fill in the form (name, email, project description — "personal news reader, non-commercial")
+4. You'll receive an API key immediately — copy it
+
+You'll paste it into `.env.pipeline` in Step 8.
+
+### Step 5 — OpenRouter API key (for AI curation)
+
+The curation step (dedup + categorize + morning briefing) uses a single LLM
+call via OpenRouter. **Any model available on OpenRouter works** — the
+default is `z-ai/glm-5.2`, but you can change it in `feeds.yaml` under
+`curation.model`.
+
+1. Go to **https://openrouter.ai**
+2. Sign up and create an API key at **https://openrouter.ai/keys**
+3. Copy the key
+
+### Step 6 — rmapi (reMarkable Cloud CLI)
+
+`rmapi` is a Go binary that uploads EPUBs to your reMarkable via the Cloud
+API. It is installed separately from the Python dependencies.
+
+```bash
+# Install rmapi (ddvk/rmapi — actively maintained)
+cd /tmp
+wget https://github.com/ddvk/rmapi/releases/latest/download/rmapi-linux-amd64.tar.gz
+tar xf rmapi-linux-amd64.tar.gz
+sudo mv rmapi /usr/local/bin/
+rmapi --version
+```
+
+Pair it with your reMarkable account (one-time):
+
+```bash
+# Get a one-time code at:
+#   https://my.remarkable.com/device/desktop/connect
+rmapi
+# First run prompts for the code — paste it in.
+# This creates ~/.rmapi with your auth token.
+```
+
+Verify the connection and create the `/News` folder:
+
+```bash
+rmapi ls
+rmapi mkdir /News
+rmapi ls /News
+```
+
+### Step 7 — Copy the feeds config
+
+```bash
 cp feeds.example.yaml feeds.yaml
-# Edit feeds.yaml to add/remove sources, adjust limits
+# Edit feeds.yaml to add/remove sources, adjust limits.
+# See the Configuration Reference section below for all options.
+```
 
-# Verify
+### Step 8 — Create .env.pipeline with your API keys
+
+Create the environment file the pipeline reads at runtime. This file is
+gitignored and should have restrictive permissions.
+
+```bash
+cat > .env.pipeline << 'EOF'
+GUARDIAN_API_KEY=your-guardian-key-here
+OPENROUTER_API_KEY=your-openrouter-key-here
+EOF
+chmod 600 .env.pipeline
+```
+
+> API keys are **never** stored in `feeds.yaml` — only the environment
+> variable *name* is referenced there (e.g. `api_key_env: GUARDIAN_API_KEY`).
+> The pipeline reads the actual values from the environment or
+> `.env.pipeline`.
+
+For manual (non-systemd) runs, source the file first:
+
+```bash
+set -a; source .env.pipeline; set +a
+```
+
+### Step 9 — Verify
+
+```bash
+source .venv/bin/activate
 python -m remarkable_morning.pipeline feeds.yaml
 ```
+
+If everything is wired up, this fetches articles, curates them, builds an
+EPUB, uploads it to `/News/`, and cleans up old files.
+
+### Step 10 — (Optional) systemd timer — daily auto-run (Linux only)
+
+The pipeline ships with systemd `--user` unit files for unattended daily
+runs at 05:30 EDT.
+
+```bash
+# Copy service + timer to your systemd user directory
+cp systemd/remarkable-morning.service ~/.config/systemd/user/
+cp systemd/remarkable-morning.timer ~/.config/systemd/user/
+
+# Reload and enable
+systemctl --user daemon-reload
+systemctl --user enable remarkable-morning.timer
+systemctl --user start remarkable-morning.timer
+
+# Verify
+systemctl --user list-timers remarkable-morning.timer
+# Should show next trigger: tomorrow 05:30 EDT
+
+# Manual test run
+systemctl --user start remarkable-morning.service
+journalctl --user -u remarkable-morning.service -f
+```
+
+The service file reads API keys from `.env.pipeline` via
+`EnvironmentFile=%h/remarkable-morning/.env.pipeline`, so Step 8 covers
+this — no extra configuration needed.
 
 ### Python Dependencies
 
