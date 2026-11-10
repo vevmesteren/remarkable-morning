@@ -213,8 +213,8 @@ def _chapter_title(article: Article, index: int) -> str:
 
 
 def _escape(text: str) -> str:
-    """Minimal HTML escaping."""
-    return _html_escape(text, quote=True)
+    """Minimal HTML escaping for XHTML text content (&, <, > only)."""
+    return _html_escape(text, quote=False)
 
 
 def _format_date(date_str: str) -> str:
