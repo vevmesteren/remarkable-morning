@@ -113,8 +113,9 @@ def test_upload_uses_correct_destination(tmp_path):
 
     assert captured["cmd"][0] == "rmapi"
     assert captured["cmd"][1] == "put"
-    assert captured["cmd"][2] == str(epub)
-    assert captured["cmd"][3] == "/News"
+    assert "--force" in captured["cmd"]
+    assert str(epub) in captured["cmd"]
+    assert "/News" in captured["cmd"]
 
 
 # ---------------------------------------------------------------------------

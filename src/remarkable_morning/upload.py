@@ -26,7 +26,7 @@ def upload_epub(epub_path: str | Path, config: Config) -> bool:
     logger.info("Uploading %s → %s", epub_path, dest)
 
     result = subprocess.run(
-        ["rmapi", "put", str(epub_path), dest],
+        ["rmapi", "put", "--force", str(epub_path), dest],
         capture_output=True,
         text=True,
     )
