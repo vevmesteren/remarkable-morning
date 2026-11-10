@@ -21,11 +21,11 @@ tags: [lineage, remarkable-morning, news, epub, remarkable]
 
 ### Problem
 
-Valentin wants a daily morning news digest delivered to his reMarkable Paper Pro — curated from 19 sources across EN/DE/FR, with AI-driven dedup and categorization, as a reflowable EPUB. Today he manually checks multiple news sites across three languages every morning, which is time-consuming and inconsistent. The reMarkable Paper Pro is his preferred reading device (e-ink, distraction-free), but there's no built-in news pipeline.
+The operator wants a daily morning news digest delivered to a reMarkable Paper Pro — curated from 19 sources across EN/DE/FR, with AI-driven dedup and categorization, as a reflowable EPUB. Today this is done by manually checking multiple news sites across three languages every morning, which is time-consuming and inconsistent. The reMarkable Paper Pro is the preferred reading device (e-ink, distraction-free), but there's no built-in news pipeline.
 
 ### Buyer
 
-Valentin (personal tool). The "payment" is time saved — 20-30 minutes per morning not spent switching between news sites and languages, plus a better reading experience on e-ink vs. screen.
+The operator (personal tool). The "payment" is time saved — 20-30 minutes per morning not spent switching between news sites and languages, plus a better reading experience on e-ink vs. screen.
 
 ### Success Signal
 
@@ -81,7 +81,7 @@ Remarkable Morning operates as a scheduled pipeline on the Hermes host. It is no
 
 ### Strategic Alignment
 
-Personal productivity tool — no enterprise or commercial alignment. Supports Valentin's daily information intake habits and preference for e-ink reading.
+Personal productivity tool — no enterprise or commercial alignment. Supports the operator's daily information intake habits and preference for e-ink reading.
 
 ---
 
