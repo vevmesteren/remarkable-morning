@@ -1,8 +1,8 @@
 # remarkable-morning
 
-Daily news digest pipeline for reMarkable Paper Pro. Fetches sources across EN/DE/FR, curates via LLM, builds a reflowable EPUB, and uploads to reMarkable Cloud via `rmapi`.
+Daily news digest pipeline for reMarkable Paper Pro. Fetches news from configurable sources and languages, curates via LLM, builds a reflowable EPUB, and uploads to reMarkable Cloud via `rmapi`.
 
-Every morning at 05:30 EDT, a Python pipeline fetches news from sources across 3 languages (EN/DE/FR), extracts full article text, runs a light AI curation pass (dedup + categorize + morning briefing), assembles a reflowable EPUB, uploads it to the reMarkable Paper Pro via `rmapi`, and trashes files older than 7 days. You read it with your coffee.
+Every morning at 05:30 EDT, a Python pipeline fetches news from your configured sources and languages, extracts full article text, runs a light AI curation pass (dedup + categorize + morning briefing), assembles a reflowable EPUB, uploads it to the reMarkable Paper Pro via `rmapi`, and trashes files older than 7 days. You read it with your coffee.
 
 **Everything is configurable** — sources, languages, categories, article limits, per-source caps, retention, schedule, and LLM model are all set in `feeds.yaml`. Add or remove feeds, switch languages, tune the curation — no code changes needed. See [Configuration Reference](#configuration-reference) below.
 
@@ -29,7 +29,7 @@ You'll need: a **Guardian API key** (free — https://open-platform.theguardian.
 graph TD
     subgraph Sources
         GA["Guardian Content API<br/>full text, free developer key"]
-        RSS["RSS Feeds<br/>18+ feeds across 3 languages"]
+        RSS["RSS Feeds<br/>configurable sources & languages"]
     end
 
     subgraph Pipeline["Morning Paper Pipeline — Hermes host"]
@@ -443,8 +443,8 @@ python -m remarkable_morning.pipeline feeds.yaml /tmp/epubs
 │   stories..."                       │
 │  [AI morning briefing]              │
 │                                     │
-│  24 articles · 19 sources           │
-│  EN · DE · FR                       │
+│  24 articles · multiple sources       │
+│  your configured languages            │
 │                                     │
 │  ─── TABLE OF CONTENTS ───          │
 │  World (8)                          │
