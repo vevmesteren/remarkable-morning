@@ -61,7 +61,7 @@ def extract_text(article: Article) -> Article:
 
     if article.raw_html:
         text = _extract(article.raw_html)
-        if text and len(text.split()) >= _MIN_WORDS and _is_clean_text(text):
+        if text and _is_clean_text(text) and _is_article_text(text):
             article.full_text = text
             return article
 
@@ -72,10 +72,10 @@ def extract_text(article: Article) -> Article:
             downloaded = fetcher(article.url)
             if downloaded:
                 text = _extract(downloaded)
-                if text and _is_clean_text(text):
+                if text and _is_clean_text(text) and _is_article_text(text):
                     article.full_text = text
                 elif text:
-                    logger.warning("Discarding gibberish extraction for %s", article.url)
+                    logger.warning("Discarding non-article extraction for %s", article.url)
         except TimeoutError:
             logger.warning("fetch_url timed out after %ds for %s", _FETCH_TIMEOUT, article.url)
         except Exception as exc:  # noqa: BLE001 — network errors are non-fatal
@@ -169,4 +169,58 @@ def _is_clean_text(text: str) -> bool:
             logger.debug("Gibberish chunk at offset %d (ratio=%.3f)", start, chunk_ratio)
             return False
 
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Non-article detection
+# ---------------------------------------------------------------------------
+
+# Known non-article patterns — text trafilatura extracts from pages with no
+# real article body: video-player error messages, cookie-consent notices, and
+# paywall prompts. These read as clean language (so they sail past the
+# gibberish detector) but are not article content. Matched case-insensitively
+# as substrings; covers EN/DE/FR.
+_NON_ARTICLE_PATTERNS = frozenset([
+    # --- Video player / browser messages ---
+    "lecteur vidéo",                     # FR
+    "video player",                      # EN
+    "videoplayer",                       # DE (Videoplayer)
+    # --- Cookie-consent notices ---
+    "we use cookies",                    # EN
+    "this site uses cookies",            # EN
+    "this website uses cookies",         # EN
+    "accept cookies",                    # EN
+    "ce site utilise des cookies",       # FR
+    "ce site web utilise des cookies",   # FR
+    "verwendet cookies",                 # DE
+    "diese website verwendet cookies",   # DE
+    # --- Paywall / subscription prompts ---
+    "subscribe to continue reading",     # EN
+    "subscribe to read",                 # EN
+    "this article is for subscribers",   # EN
+    "réservé aux abonnés",               # FR
+    "abonnez-vous",                      # FR
+    "nur für abonnenten",                # DE
+])
+
+
+def _is_article_text(text: str) -> bool:
+    """Check that extracted text is actual article content.
+
+    Guards against non-article text that passes the gibberish detector
+    because it is clean language — just not article content: video-player
+    error messages, cookie-consent notices, paywall prompts, and text
+    below the minimum word count. Both ``_is_clean_text`` and this check
+    must pass for extracted text to be accepted.
+    """
+    if not text:
+        return False
+    # Too short to be a real article body.
+    if len(text.split()) < _MIN_WORDS:
+        return False
+    # Known non-article boilerplate (video / cookie / paywall) in EN/DE/FR.
+    lowered = text.lower()
+    if any(pattern in lowered for pattern in _NON_ARTICLE_PATTERNS):
+        return False
     return True
