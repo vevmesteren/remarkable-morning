@@ -58,7 +58,10 @@ def curate(
 
     curated: list[Article] = []
     for sel in selected_raw:
-        article = by_id.get(sel.get("id"))
+        sel_id = sel.get("id")
+        if sel_id is None:
+            continue
+        article = by_id.get(sel_id)
         if article is None:
             continue
         article.category = sel.get("category") or config.categories[0] if config.categories else "World"
