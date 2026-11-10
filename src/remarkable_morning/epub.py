@@ -55,7 +55,7 @@ def build_epub(
 
     book = epub.EpubBook()
     book.set_identifier(f"morning-paper-{date_str}")
-    book.set_title("Morning Paper")
+    book.set_title("Remarkable Morning")
     book.set_language(config.primary_language)
     book.add_author("Remarkable Morning")
 
@@ -149,11 +149,11 @@ def _cover_html(
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
-<head><title>Morning Paper</title>
+<head><title>Remarkable Morning</title>
 <link rel="stylesheet" type="text/css" href="style/morning.css"/>
 </head>
 <body class="cover">
-<h1 class="cover-title">MORNING PAPER</h1>
+<h1 class="cover-title">REMARKABLE MORNING</h1>
 <p class="cover-date">{safe_date}</p>
 <div class="briefing">{safe_briefing}</div>
 <p class="cover-stats">{len(articles)} articles · {len(sources)} sources</p>

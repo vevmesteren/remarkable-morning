@@ -119,7 +119,7 @@ def test_build_epub_cover_has_briefing_and_stats(curated_articles, config, tmp_p
             break
     assert cover is not None
     content = cover.get_content().decode("utf-8")
-    assert "MORNING PAPER" in content
+    assert "REMARKABLE MORNING" in content
     assert BRIEFING in content
     assert "3 articles" in content
     assert "TABLE OF CONTENTS" in content
