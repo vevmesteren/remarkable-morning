@@ -9,7 +9,8 @@ too little text, falls back to fetching the article URL.
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+import subprocess
+import sys
 
 import trafilatura
 
@@ -21,6 +22,32 @@ logger = logging.getLogger(__name__)
 _MIN_WORDS = 20
 # Per-article deadline for fetch_url fallback (seconds).
 _FETCH_TIMEOUT = 15
+
+# Module-level reference so tests can patch the fetch function.
+_fetch_url = None
+
+
+def _real_fetch_url(url: str) -> str | None:
+    """Call trafilatura.fetch_url in a subprocess with a hard timeout.
+
+    trafilatura.fetch_url is a blocking C call that ignores SIGALRM,
+    so we run it in a subprocess that we can kill after _FETCH_TIMEOUT.
+    """
+    script = (
+        "import trafilatura; "
+        f"result = trafilatura.fetch_url({url!r}); "
+        "import sys; sys.stdout.write(result or '')"
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=_FETCH_TIMEOUT,
+        )
+        return result.stdout if result.stdout else None
+    except subprocess.TimeoutExpired:
+        raise TimeoutError(f"fetch_url exceeded {_FETCH_TIMEOUT}s deadline")
 
 
 def extract_text(article: Article) -> Article:
@@ -39,21 +66,16 @@ def extract_text(article: Article) -> Article:
             return article
 
     # Fallback: download the article page and extract from there.
-    # trafilatura.fetch_url has no built-in timeout, so we wrap it in a
-    # thread with a hard deadline to prevent the pipeline from hanging.
     if article.url:
+        fetcher = _fetch_url or _real_fetch_url
         try:
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(trafilatura.fetch_url, article.url)
-                try:
-                    downloaded = future.result(timeout=_FETCH_TIMEOUT)
-                except FuturesTimeout:
-                    logger.warning("fetch_url timed out after %ds for %s", _FETCH_TIMEOUT, article.url)
-                    return article
+            downloaded = fetcher(article.url)
             if downloaded:
                 text = _extract(downloaded)
                 if text:
                     article.full_text = text
+        except TimeoutError:
+            logger.warning("fetch_url timed out after %ds for %s", _FETCH_TIMEOUT, article.url)
         except Exception as exc:  # noqa: BLE001 — network errors are non-fatal
             logger.warning("fetch_url fallback failed for %s: %s", article.url, exc)
 

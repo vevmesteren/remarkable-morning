@@ -82,7 +82,7 @@ def test_extract_text_fallback_to_fetch_url():
     with patch(
         "remarkable_morning.extract._extract", side_effect=["Too short.", long_text]
     ), patch(
-        "remarkable_morning.extract.trafilatura.fetch_url", return_value="downloaded"
+        "remarkable_morning.extract._fetch_url", return_value="downloaded"
     ):
         extract_text(article)
     assert article.full_text == long_text
@@ -97,7 +97,7 @@ def test_extract_text_fetch_url_failure_is_non_fatal():
         raw_html="<p>Short.</p>",
     )
     with patch(
-        "remarkable_morning.extract.trafilatura.fetch_url", side_effect=Exception("Network error")
+        "remarkable_morning.extract._fetch_url", side_effect=Exception("Network error")
     ):
         extract_text(article)
     # Should not raise; full_text stays empty
