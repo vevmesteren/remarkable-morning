@@ -35,6 +35,11 @@ try:
 except ImportError:  # pragma: no cover — httpx is a core dependency
     httpx = None
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover — PyYAML is a core dependency
+    yaml = None
+
 
 # ---------------------------------------------------------------------------
 # ANSI colours (no external dependency)
@@ -92,6 +97,30 @@ def _prompt(message: str) -> str:
 def _prompt_secret(message: str) -> str:
     """Read masked user input (for API keys).  Tests monkeypatch this."""
     return getpass.getpass(message)
+
+
+def _yaml_load(path: Path) -> dict:
+    """Load YAML from *path* and return a plain dict (MF-3).
+
+    Returns an empty dict when the file is empty or contains only
+    comments.  Tests monkeypatch this to avoid real file I/O.
+    """
+    if yaml is None:  # pragma: no cover
+        raise RuntimeError("PyYAML is required for feeds.yaml customization")
+    with open(path, encoding="utf-8") as fh:
+        data = yaml.safe_load(fh)
+    return data if isinstance(data, dict) else {}
+
+
+def _yaml_dump(path: Path, data: dict) -> None:
+    """Write *data* as YAML to *path* (MF-3).  Tests monkeypatch this."""
+    if yaml is None:  # pragma: no cover
+        raise RuntimeError("PyYAML is required for feeds.yaml customization")
+    with open(path, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(
+            data, fh, default_flow_style=False,
+            sort_keys=False, allow_unicode=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +330,248 @@ def copy_feeds_config(project_dir: Path) -> SetupResult:
     shutil.copy2(source, target)
     _ok("Copied feeds.example.yaml → feeds.yaml")
     return SetupResult("feeds.yaml", "done", str(target))
+
+
+# ---------------------------------------------------------------------------
+# Step 5b — Customize feeds.yaml (5 sub-steps, each skippable)
+# ---------------------------------------------------------------------------
+
+_VALID_LANGS = ("en", "de", "fr")
+
+
+def customize_language(feeds_path: Path) -> SetupResult:
+    """Sub-step 1: Toggle the primary language (en/de/fr).
+
+    Reads the current ``primary_language`` from *feeds_path*, prompts
+    for a new value, and writes it back via PyYAML.  Skippable at two
+    levels: the initial yes/no prompt and the language-entry prompt.
+    """
+    _print_header("Step 5b.1: Language selection")
+    if not feeds_path.exists():
+        _info("feeds.yaml not found — skipped")
+        return SetupResult("Language selection", "skipped", "no feeds.yaml")
+    if not _ask_yes_no("Customize primary language?", default=True):
+        _info("Skipped")
+        return SetupResult("Language selection", "skipped")
+    data = _yaml_load(feeds_path)
+    current = data.get("primary_language", "en")
+    _info(f"Current primary language: {current}")
+    _info(f"Available: {', '.join(_VALID_LANGS)}")
+    choice = _prompt(
+        f"  Enter new primary language [{'/'.join(_VALID_LANGS)}]"
+        " (Enter to skip): "
+    ).strip().lower()
+    if not choice:
+        _info("No change — skipped")
+        return SetupResult("Language selection", "skipped", "no change")
+    if choice not in _VALID_LANGS:
+        _warn(f"Invalid language '{choice}' — skipped")
+        return SetupResult("Language selection", "warning", f"invalid: {choice}")
+    data["primary_language"] = choice
+    _yaml_dump(feeds_path, data)
+    _ok(f"Primary language set to '{choice}'")
+    return SetupResult("Language selection", "done", choice)
+
+
+def customize_sources(feeds_path: Path) -> SetupResult:
+    """Sub-step 2: Enable/disable sources, grouped by language.
+
+    Lists every source in *feeds_path* grouped by its ``language``
+    field (falling back to ``primary_language``).  For each source the
+    user can enable, disable, or skip.  Changes are written back via
+    PyYAML.  Skippable at the top-level yes/no and per-source.
+    """
+    _print_header("Step 5b.2: Source enable/disable")
+    if not feeds_path.exists():
+        _info("feeds.yaml not found — skipped")
+        return SetupResult("Source enable/disable", "skipped", "no feeds.yaml")
+    if not _ask_yes_no("Enable/disable individual sources?", default=True):
+        _info("Skipped")
+        return SetupResult("Source enable/disable", "skipped")
+    data = _yaml_load(feeds_path)
+    sources = data.get("sources", [])
+    if not sources:
+        _info("No sources found in feeds.yaml")
+        return SetupResult("Source enable/disable", "skipped", "no sources")
+
+    # Group sources by language for display
+    by_lang: dict[str, list[dict]] = {}
+    for src in sources:
+        lang = src.get("language", data.get("primary_language", "en"))
+        by_lang.setdefault(lang, []).append(src)
+
+    changed = False
+    for lang in by_lang:
+        _info(f"  [{lang}]")
+        for src in by_lang[lang]:
+            name = src.get("name", "(unnamed)")
+            current = src.get("enabled", True)
+            status_str = "enabled" if current else "disabled"
+            raw = _prompt(
+                f"    {name} (currently {status_str})"
+                " [y=enable / n=disable / Enter=skip]: "
+            ).strip().lower()
+            if not raw:
+                continue
+            if raw in ("y", "yes"):
+                src["enabled"] = True
+                changed = True
+            elif raw in ("n", "no"):
+                src["enabled"] = False
+                changed = True
+
+    if changed:
+        _yaml_dump(feeds_path, data)
+        _ok("Source enable/disable updated")
+        return SetupResult("Source enable/disable", "done", "updated")
+    _info("No changes — skipped")
+    return SetupResult("Source enable/disable", "skipped", "no changes")
+
+
+def add_custom_feed(feeds_path: Path) -> SetupResult:
+    """Sub-step 3: Add a custom RSS feed (URL, name, language).
+
+    Prompts for a feed URL, display name, and language, then appends a
+    new source entry to the ``sources`` list in *feeds_path* via
+    PyYAML.  Skippable at the top-level yes/no and at each sub-prompt.
+    """
+    _print_header("Step 5b.3: Add custom RSS feed")
+    if not feeds_path.exists():
+        _info("feeds.yaml not found — skipped")
+        return SetupResult("Custom feed", "skipped", "no feeds.yaml")
+    if not _ask_yes_no("Add a custom RSS feed?", default=True):
+        _info("Skipped")
+        return SetupResult("Custom feed", "skipped")
+
+    url = _prompt("  Feed URL (Enter to skip): ").strip()
+    if not url:
+        _info("No URL — skipped")
+        return SetupResult("Custom feed", "skipped", "no URL")
+
+    name = _prompt("  Feed name (Enter to skip): ").strip()
+    if not name:
+        _info("No name — skipped")
+        return SetupResult("Custom feed", "skipped", "no name")
+
+    lang = _prompt(
+        f"  Language [{'/'.join(_VALID_LANGS)}] (Enter for en): "
+    ).strip().lower()
+    if not lang:
+        lang = "en"
+    if lang not in _VALID_LANGS:
+        _warn(f"Invalid language '{lang}' — defaulting to 'en'")
+        lang = "en"
+
+    data = _yaml_load(feeds_path)
+    if "sources" not in data:
+        data["sources"] = []
+
+    existing_names = {s.get("name", "") for s in data["sources"]}
+    if name in existing_names:
+        _warn(f"Source '{name}' already exists — skipped")
+        return SetupResult("Custom feed", "warning", f"duplicate name: {name}")
+
+    data["sources"].append({
+        "name": name,
+        "type": "rss",
+        "feeds": [url],
+        "language": lang,
+    })
+    _yaml_dump(feeds_path, data)
+    _ok(f"Added '{name}' ({lang}) — {url}")
+    return SetupResult("Custom feed", "done", f"{name} ({lang})")
+
+
+def customize_max_per_source(feeds_path: Path) -> SetupResult:
+    """Sub-step 4: Set ``curation.max_per_source``.
+
+    Shows the current value, prompts for a new positive integer, and
+    writes it back via PyYAML.  Skippable at the top-level yes/no and
+    the value-entry prompt.
+    """
+    _print_header("Step 5b.4: max_per_source")
+    if not feeds_path.exists():
+        _info("feeds.yaml not found — skipped")
+        return SetupResult("max_per_source", "skipped", "no feeds.yaml")
+    if not _ask_yes_no("Customize max_per_source?", default=True):
+        _info("Skipped")
+        return SetupResult("max_per_source", "skipped")
+    data = _yaml_load(feeds_path)
+    curation = data.get("curation", {})
+    current = curation.get("max_per_source", 5)
+    _info(f"Current max_per_source: {current}")
+    raw = _prompt("  Enter new max_per_source (Enter to skip): ").strip()
+    if not raw:
+        _info("No change — skipped")
+        return SetupResult("max_per_source", "skipped", "no change")
+    try:
+        value = int(raw)
+    except ValueError:
+        _warn(f"Invalid number '{raw}' — skipped")
+        return SetupResult("max_per_source", "warning", f"invalid: {raw}")
+    if value < 1:
+        _warn("max_per_source must be >= 1 — skipped")
+        return SetupResult("max_per_source", "warning", f"out of range: {value}")
+    curation["max_per_source"] = value
+    data["curation"] = curation
+    _yaml_dump(feeds_path, data)
+    _ok(f"max_per_source set to {value}")
+    return SetupResult("max_per_source", "done", str(value))
+
+
+def customize_max_articles(feeds_path: Path) -> SetupResult:
+    """Sub-step 5: Set ``curation.max_articles``.
+
+    Shows the current value, prompts for a new positive integer, and
+    writes it back via PyYAML.  Skippable at the top-level yes/no and
+    the value-entry prompt.
+    """
+    _print_header("Step 5b.5: max_articles")
+    if not feeds_path.exists():
+        _info("feeds.yaml not found — skipped")
+        return SetupResult("max_articles", "skipped", "no feeds.yaml")
+    if not _ask_yes_no("Customize max_articles?", default=True):
+        _info("Skipped")
+        return SetupResult("max_articles", "skipped")
+    data = _yaml_load(feeds_path)
+    curation = data.get("curation", {})
+    current = curation.get("max_articles", 25)
+    _info(f"Current max_articles: {current}")
+    raw = _prompt("  Enter new max_articles (Enter to skip): ").strip()
+    if not raw:
+        _info("No change — skipped")
+        return SetupResult("max_articles", "skipped", "no change")
+    try:
+        value = int(raw)
+    except ValueError:
+        _warn(f"Invalid number '{raw}' — skipped")
+        return SetupResult("max_articles", "warning", f"invalid: {raw}")
+    if value < 1:
+        _warn("max_articles must be >= 1 — skipped")
+        return SetupResult("max_articles", "warning", f"out of range: {value}")
+    curation["max_articles"] = value
+    data["curation"] = curation
+    _yaml_dump(feeds_path, data)
+    _ok(f"max_articles set to {value}")
+    return SetupResult("max_articles", "done", str(value))
+
+
+def customize_feeds(project_dir: Path) -> list[SetupResult]:
+    """Run all 5 feeds.yaml customization sub-steps (Step 5b).
+
+    Each sub-step is individually skippable.  If ``feeds.yaml`` does not
+    exist in *project_dir*, a single ``skipped`` result is returned.
+    """
+    feeds_path = project_dir / "feeds.yaml"
+    if not feeds_path.exists():
+        return [SetupResult("Customize feeds", "skipped", "no feeds.yaml")]
+    return [
+        customize_language(feeds_path),
+        customize_sources(feeds_path),
+        add_custom_feed(feeds_path),
+        customize_max_per_source(feeds_path),
+        customize_max_articles(feeds_path),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -524,6 +795,9 @@ def main() -> int:
 
     # Step 5: feeds.yaml
     state.results.append(copy_feeds_config(project_dir))
+
+    # Step 5b: customize feeds.yaml (5 sub-steps, each skippable)
+    state.results.extend(customize_feeds(project_dir))
 
     # Step 6: .env.pipeline
     state.results.append(
