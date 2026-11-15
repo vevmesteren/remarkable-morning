@@ -57,17 +57,26 @@ def curate(
     by_id = {a.id: a for a in articles}
     category_order = {cat: i for i, cat in enumerate(config.categories)}
 
-    curated: list[Article] = []
+    selected_ids: set[str] = set()
     for sel in selected_raw:
         sel_id = sel.get("id")
         if sel_id is None:
             continue
+        selected_ids.add(sel_id)
         article = by_id.get(sel_id)
         if article is None:
             continue
         article.category = sel.get("category") or config.categories[0] if config.categories else "World"
         article.also_covered_by = list(sel.get("also_covered_by", []))
         article.duplicate_of = sel.get("duplicate_of")
+
+    # Correct LLM dedup decisions using source weights (deterministic)
+    _apply_source_weights(articles)
+
+    curated: list[Article] = []
+    for article in articles:
+        if article.id not in selected_ids:
+            continue
         if not article.is_duplicate:
             curated.append(article)
 
@@ -104,6 +113,7 @@ def build_prompt(articles: list[Article]) -> dict:
                 "source": a.source,
                 "url": a.url,
                 "language": a.language,
+                "weight": a.weight,
                 "first_200_words": a.first_200_words,
                 "published": a.published,
             }
@@ -171,11 +181,12 @@ def _build_system_prompt(config: CurationConfig) -> str:
     return (
         "You are a news curator for a daily morning digest. "
         "You receive a JSON object with an 'articles' array. Each article has "
-        "id, title, source, url, language, first_200_words, and published.\n\n"
+        "id, title, source, url, language, weight, first_200_words, and published.\n\n"
         "Your tasks:\n"
-        "1. DEDUP: If the same story appears in multiple sources, keep the best "
-        "one and set 'duplicate_of' on the others to the kept article's id. "
-        "List the covering sources in 'also_covered_by'.\n"
+        "1. DEDUP: If the same story appears in multiple sources, keep the one "
+        "from the source with the highest 'weight' and set 'duplicate_of' on "
+        "the others to the kept article's id. List the covering sources in "
+        "'also_covered_by'.\n"
         f"2. CATEGORIZE: Assign each kept article to one of: {categories}.\n"
         "3. BRIEFING: Write a 3-5 sentence morning briefing summarising the "
         "top stories.\n\n"
@@ -187,7 +198,57 @@ def _build_system_prompt(config: CurationConfig) -> str:
     )
 
 
-# --------------------------------------------------------------------------- 
+# ---------------------------------------------------------------------------
+# Source weight correction
+# ---------------------------------------------------------------------------
+
+def _apply_source_weights(articles: list[Article]) -> None:
+    """Correct LLM dedup decisions using source weights (in-place).
+
+    After the LLM marks duplicates, each dedup group has one "kept" article
+    (``duplicate_of`` is None) and one or more duplicates pointing to it.
+    If a duplicate has a higher source weight than the kept article, swap
+    them so the higher-weight source is the one displayed.
+    """
+    # Build groups: kept_id → duplicate articles (kept article added separately)
+    dup_groups: dict[str, list[Article]] = {}
+    for a in articles:
+        if a.duplicate_of:
+            dup_groups.setdefault(a.duplicate_of, []).append(a)
+
+    for kept_id, dups in dup_groups.items():
+        # Find the kept article (the one others point to)
+        kept = next((a for a in articles if a.id == kept_id and not a.is_duplicate), None)
+        if kept is None:
+            continue
+
+        group = [kept] + dups
+        best = max(group, key=lambda a: a.weight)
+        if best.id == kept.id or best.weight <= kept.weight:
+            continue
+
+        # Collect all sources in the group for also_covered_by reconstruction
+        all_sources: set[str] = set()
+        for a in group:
+            if a.source:
+                all_sources.add(a.source)
+
+        # Swap: best becomes the kept article
+        best.duplicate_of = None
+        best.also_covered_by = [s for s in all_sources if s != best.source]
+
+        # Old kept becomes a duplicate
+        kept.duplicate_of = best.id
+        kept.also_covered_by = []
+
+        logger.info(
+            "Source weight swap: '%s' (%s, w=%d) replaces '%s' (%s, w=%d)",
+            best.title[:60], best.source, best.weight,
+            kept.title[:60], kept.source, kept.weight,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Fallback dedup and source diversity enforcement
 # ---------------------------------------------------------------------------
 
@@ -204,9 +265,10 @@ def _normalize_title(title: str) -> str:
 def _fallback_dedup(articles: list[Article]) -> list[Article]:
     """Catch duplicates the LLM missed by comparing normalized titles.
 
-    Uses SequenceMatcher with a 0.72 similarity threshold. When two titles
-    are very similar, the second is dropped and the first gets its source
-    added to also_covered_by.
+    Uses SequenceMatcher with a 0.85 similarity threshold. When two titles
+    are very similar, the one with the higher source weight is kept. If
+    weights are equal, the first-encountered article wins (preserving
+    original order).
     """
     if len(articles) < 2:
         return articles
@@ -219,18 +281,32 @@ def _fallback_dedup(articles: list[Article]) -> list[Article]:
             kept.append(article)
             continue
         is_dup = False
-        for k in kept:
+        for i, k in enumerate(kept):
             k_norm = _normalize_title(k.title)
             if len(k_norm.split()) < _MIN_TITLE_WORDS:
                 continue
             ratio = SequenceMatcher(None, norm, k_norm).ratio()
             if ratio >= _TITLE_SIMILARITY_THRESHOLD:
-                if article.source and article.source not in k.also_covered_by:
-                    k.also_covered_by.append(article.source)
-                logger.info(
-                    "Fallback dedup: '%s' (%s) is duplicate of '%s' (%s) [ratio=%.2f]",
-                    article.title[:60], article.source, k.title[:60], k.source, ratio,
-                )
+                if article.weight > k.weight:
+                    # Higher-weight article replaces the kept one
+                    if k.source and k.source not in article.also_covered_by:
+                        article.also_covered_by.append(k.source)
+                    if article.source and article.source not in k.also_covered_by:
+                        k.also_covered_by.append(article.source)
+                    k.duplicate_of = article.id
+                    kept[i] = article
+                    logger.info(
+                        "Fallback dedup (weight swap): '%s' (%s, w=%d) replaces '%s' (%s, w=%d) [ratio=%.2f]",
+                        article.title[:60], article.source, article.weight,
+                        k.title[:60], k.source, k.weight, ratio,
+                    )
+                else:
+                    if article.source and article.source not in k.also_covered_by:
+                        k.also_covered_by.append(article.source)
+                    logger.info(
+                        "Fallback dedup: '%s' (%s) is duplicate of '%s' (%s) [ratio=%.2f]",
+                        article.title[:60], article.source, k.title[:60], k.source, ratio,
+                    )
                 is_dup = True
                 break
         if not is_dup:

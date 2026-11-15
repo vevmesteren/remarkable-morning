@@ -202,3 +202,45 @@ def test_make_article_id_deterministic():
     assert id1 == id2
     assert id1 != id3
     assert len(id1) == 12
+
+
+def test_source_weight_defaults_to_1(valid_config: Config):
+    """Sources without an explicit weight should default to 1."""
+    for src in valid_config.sources:
+        assert src.weight == 1
+
+
+def test_source_weight_parsed_from_yaml(tmp_path: Path):
+    yaml = textwrap.dedent("""\
+        schedule: "05:30"
+        remarkable_folder: "/News"
+        retention_days: 7
+        primary_language: en
+        sources:
+          - name: "BBC News"
+            type: rss
+            feeds: ["http://feeds.bbci.co.uk/news/world/rss.xml"]
+            limit: 10
+          - name: "The Guardian"
+            type: guardian_api
+            api_key_env: "GUARDIAN_API_KEY"
+            sections: [world]
+            limit: 15
+            weight: 5
+        curation:
+          model: "z-ai/glm-5.2"
+          max_articles: 25
+          categories: [World]
+          briefing: true
+          dedup: true
+    """)
+    path = tmp_path / "feeds.yaml"
+    path.write_text(yaml)
+    cfg = load_config(path)
+    assert cfg.sources[0].weight == 1  # BBC, no weight specified
+    assert cfg.sources[1].weight == 5  # Guardian, explicit weight
+
+
+def test_article_default_weight():
+    a = Article(id="x", title="t", url="u")
+    assert a.weight == 1
