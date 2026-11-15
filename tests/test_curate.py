@@ -221,6 +221,15 @@ def test_curate_dedup_marks_duplicates(sample_articles, curation_config):
     assert a1.also_covered_by == ["BBC News"]
 
 
+def test_build_prompt_includes_weight(sample_articles):
+    prompt = build_prompt(sample_articles)
+    for entry in prompt["articles"]:
+        assert "weight" in entry
+        assert isinstance(entry["weight"], int)
+    # Default weight is 1
+    assert prompt["articles"][0]["weight"] == 1
+
+
 def test_curate_sorts_by_category_order(sample_articles, curation_config):
     with patch(
         "remarkable_morning.curate.call_llm",
@@ -357,3 +366,103 @@ def test_max_per_source_enforced(curation_config):
         source_counts[a.source] = source_counts.get(a.source, 0) + 1
     assert all(c <= 3 for c in source_counts.values()), f"Source counts: {source_counts}"
     assert len(selected) <= 3  # All from BBC, capped at 3
+
+
+# ---------------------------------------------------------------------------
+# Source weight correction tests
+# ---------------------------------------------------------------------------
+
+def test_source_weight_swaps_lower_weight_kept(curation_config):
+    """LLM keeps BBC (weight=1), but Guardian (weight=3) is a duplicate —
+    the deterministic correction should swap so Guardian is kept."""
+    articles = [
+        Article(id="w1", title="Major Event Unfolds", url="http://bbc.com/1", source="BBC News", weight=1),
+        Article(id="w2", title="Same Event Reported", url="http://guardian.com/1", source="The Guardian", weight=3),
+    ]
+    # LLM keeps BBC, marks Guardian as duplicate
+    mock_resp = {
+        "briefing": "Brief.",
+        "selected": [
+            {"id": "w1", "category": "World", "also_covered_by": ["The Guardian"], "duplicate_of": None},
+            {"id": "w2", "category": "World", "also_covered_by": [], "duplicate_of": "w1"},
+        ],
+    }
+    with patch("remarkable_morning.curate.call_llm", return_value=json.dumps(mock_resp)):
+        _, selected = curate(articles, curation_config, "test-key")
+
+    # Guardian (w2) should now be the kept article
+    assert len(selected) == 1
+    assert selected[0].id == "w2"
+    assert selected[0].source == "The Guardian"
+    assert "BBC News" in selected[0].also_covered_by
+
+    # BBC (w1) should now be the duplicate
+    bbc = next(a for a in articles if a.id == "w1")
+    assert bbc.duplicate_of == "w2"
+    assert bbc.is_duplicate
+
+
+def test_source_weight_no_swap_when_kept_is_highest(curation_config):
+    """LLM keeps Guardian (weight=3), BBC (weight=1) is a duplicate —
+    no swap should occur."""
+    articles = [
+        Article(id="w1", title="Major Event Unfolds", url="http://guardian.com/1", source="The Guardian", weight=3),
+        Article(id="w2", title="Same Event Reported", url="http://bbc.com/1", source="BBC News", weight=1),
+    ]
+    mock_resp = {
+        "briefing": "Brief.",
+        "selected": [
+            {"id": "w1", "category": "World", "also_covered_by": ["BBC News"], "duplicate_of": None},
+            {"id": "w2", "category": "World", "also_covered_by": [], "duplicate_of": "w1"},
+        ],
+    }
+    with patch("remarkable_morning.curate.call_llm", return_value=json.dumps(mock_resp)):
+        _, selected = curate(articles, curation_config, "test-key")
+
+    assert len(selected) == 1
+    assert selected[0].id == "w1"
+    assert selected[0].source == "The Guardian"
+
+
+def test_source_weight_no_swap_when_equal_weights(curation_config):
+    """Both sources have the same weight — original LLM decision stands."""
+    articles = [
+        Article(id="w1", title="Major Event Unfolds", url="http://bbc.com/1", source="BBC News", weight=2),
+        Article(id="w2", title="Same Event Reported", url="http://cbc.ca/1", source="CBC News", weight=2),
+    ]
+    mock_resp = {
+        "briefing": "Brief.",
+        "selected": [
+            {"id": "w1", "category": "World", "also_covered_by": ["CBC News"], "duplicate_of": None},
+            {"id": "w2", "category": "World", "also_covered_by": [], "duplicate_of": "w1"},
+        ],
+    }
+    with patch("remarkable_morning.curate.call_llm", return_value=json.dumps(mock_resp)):
+        _, selected = curate(articles, curation_config, "test-key")
+
+    assert len(selected) == 1
+    assert selected[0].id == "w1"  # Original kept, no swap
+
+
+def test_fallback_dedup_swaps_on_weight(curation_config):
+    """When the LLM misses a duplicate and fallback dedup catches it,
+    the higher-weight source should be kept even if it appears second."""
+    articles = [
+        Article(id="f1", title="Australia considers criminal penalties for rogue AI use", url="http://bbc.com/1", source="BBC News", weight=1),
+        Article(id="f2", title="Australia considers criminal penalties for rogue AI in Wake", url="http://guardian.com/1", source="The Guardian", weight=3),
+    ]
+    # LLM doesn't detect the duplicate
+    mock_resp = {
+        "briefing": "Brief.",
+        "selected": [
+            {"id": "f1", "category": "World", "also_covered_by": [], "duplicate_of": None},
+            {"id": "f2", "category": "World", "also_covered_by": [], "duplicate_of": None},
+        ],
+    }
+    with patch("remarkable_morning.curate.call_llm", return_value=json.dumps(mock_resp)):
+        _, selected = curate(articles, curation_config, "test-key")
+
+    assert len(selected) == 1
+    # Guardian (higher weight) should be kept even though BBC appeared first
+    assert selected[0].source == "The Guardian"
+    assert "BBC News" in selected[0].also_covered_by

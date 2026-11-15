@@ -51,6 +51,7 @@ def fetch_rss(source: SourceConfig) -> list[Article]:
                     author=entry.get("author", ""),
                     raw_html=_entry_html(entry),
                     image_url=_extract_image_url(entry),
+                    weight=source.weight,
                 )
             )
         if len(articles) >= source.limit:

@@ -68,6 +68,7 @@ def fetch_guardian(source: SourceConfig, api_key: str) -> list[Article]:
                     author=fields.get("byline", ""),
                     raw_html="",
                     full_text=fields.get("bodyText", ""),
+                    weight=source.weight,
                 )
             )
         if len(articles) >= source.limit:

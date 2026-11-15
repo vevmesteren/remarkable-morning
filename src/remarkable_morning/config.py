@@ -43,6 +43,7 @@ class Article:
     raw_html: str = ""
     full_text: str = ""
     image_url: str = ""
+    weight: int = 1
 
     # curation output (populated by curate.py)
     category: str | None = None
@@ -84,6 +85,7 @@ class SourceConfig:
     sections: list[str] = field(default_factory=list)
     limit: int = 10
     language: str = "en"
+    weight: int = 1
 
 
 @dataclass
@@ -187,6 +189,7 @@ def _build_config(data: Any) -> Config:
                 sections=list(src.get("sections", [])),
                 limit=int(src.get("limit", 10)),
                 language=src.get("language", default_lang),
+                weight=int(src.get("weight", 1)),
             )
         )
 

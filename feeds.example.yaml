@@ -20,6 +20,8 @@ sources:
     api_key_env: "GUARDIAN_API_KEY"
     sections: [world, business, technology, politics]
     limit: 15
+    # weight: 1              # Higher weight = preferred source for cross-source dedup.
+                              # Set in your local feeds.yaml, not here. Defaults to 1.
 
   - name: "BBC News"
     type: rss
