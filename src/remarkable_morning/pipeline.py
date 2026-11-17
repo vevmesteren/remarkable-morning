@@ -27,6 +27,7 @@ from remarkable_morning.config import Config, load_config
 from remarkable_morning.curate import curate
 from remarkable_morning.epub import build_epub
 from remarkable_morning.extract import extract_all
+from remarkable_morning.published_cache import PublishedCache
 from remarkable_morning.sources import guardian, rss
 from remarkable_morning.upload import upload_epub
 
@@ -70,6 +71,31 @@ def run(
         time.time() - t0,
     )
 
+    # --- 3b. Cross-day dedup (published-cache gate) ---
+    # Loads the persistent cache of previously published articles and
+    # filters out repeats before curation, so the LLM never sees them.
+    # ``dedup_lookback_days=0`` disables the cache entirely.
+    lookback = config.curation.dedup_lookback_days
+    cache = PublishedCache.load()
+    before_dedup = len(articles)
+    if lookback > 0:
+        today = _today()
+        articles = [
+            a for a in articles
+            if not cache.is_previously_published(a, lookback, today)
+        ]
+        logger.info(
+            "Cross-day dedup: %d → %d articles (%d filtered as repeats, lookback=%d days)",
+            before_dedup,
+            len(articles),
+            before_dedup - len(articles),
+            lookback,
+        )
+
+    if not articles:
+        logger.warning("No articles after cross-day dedup — aborting pipeline")
+        return None
+
     # --- 4. Curate via LLM ---
     t0 = time.time()
     briefing, selected = curate(articles, config.curation, openrouter_key)
@@ -83,6 +109,15 @@ def run(
     t0 = time.time()
     epub_path = build_epub(selected, briefing, config, output_dir=output_dir)
     logger.info("EPUB assembled: %s in %.1fs", epub_path, time.time() - t0)
+
+    # --- 5b. Update published cache with this run's selected articles ---
+    # Only persist when cross-day dedup is active (lookback > 0); when
+    # disabled we leave the cache untouched so a debug run doesn't pollute it.
+    if lookback > 0:
+        cache.add_run(selected, _today())
+        cache.prune(90, _today())  # cap growth at 90 days
+        cache.save()
+        logger.info("Published cache updated: %d entries", len(cache.entries))
 
     # --- 6. Upload ---
     t0 = time.time()
