@@ -72,7 +72,8 @@ BRIEFING = "Here's what happened overnight. A world event unfolded. A tech compa
 def test_build_epub_creates_file(curated_articles, config, tmp_path):
     path = build_epub(curated_articles, BRIEFING, config, output_dir=tmp_path)
     assert path.exists()
-    assert path.name == "morning-paper-2026-11-10.epub"
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    assert path.name == f"morning-paper-{today}.epub"
     assert path.stat().st_size > 0
 
 
