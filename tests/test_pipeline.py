@@ -235,6 +235,7 @@ def test_pipeline_full_run_mocked(tmp_path):
          patch("remarkable_morning.pipeline.build_epub", return_value=epub_path), \
          patch("remarkable_morning.pipeline.upload_epub", return_value=True), \
          patch("remarkable_morning.pipeline.cleanup_old_files", return_value=0), \
+         patch("remarkable_morning.published_cache.default_cache_path", return_value=tmp_path / "cache.json"), \
          patch.dict("os.environ", {"GUARDIAN_API_KEY": "test-key", "OPENROUTER_API_KEY": "test-key"}):
 
         result = run(config_path=str(feeds), output_dir=str(tmp_path))
@@ -287,6 +288,7 @@ def test_pipeline_continues_on_source_failure(tmp_path):
          patch("remarkable_morning.pipeline.build_epub", return_value=epub_path), \
          patch("remarkable_morning.pipeline.upload_epub", return_value=True), \
          patch("remarkable_morning.pipeline.cleanup_old_files", return_value=0), \
+         patch("remarkable_morning.published_cache.default_cache_path", return_value=tmp_path / "cache.json"), \
          patch.dict("os.environ", {"GUARDIAN_API_KEY": "test-key", "OPENROUTER_API_KEY": "test-key"}):
 
         result = run(config_path=str(feeds), output_dir=str(tmp_path))
@@ -325,6 +327,7 @@ def test_pipeline_produces_real_epub(tmp_path):
          patch("remarkable_morning.pipeline.curate", return_value=("Briefing.", articles)), \
          patch("remarkable_morning.pipeline.upload_epub", return_value=True), \
          patch("remarkable_morning.pipeline.cleanup_old_files", return_value=0), \
+         patch("remarkable_morning.published_cache.default_cache_path", return_value=tmp_path / "cache.json"), \
          patch.dict("os.environ", {"GUARDIAN_API_KEY": "test-key", "OPENROUTER_API_KEY": "test-key"}):
 
         result = run(config_path=str(feeds), output_dir=str(tmp_path))

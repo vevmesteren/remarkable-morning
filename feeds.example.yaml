@@ -142,3 +142,6 @@ curation:
     - Opinion
   briefing: true           # Generate 3-5 sentence morning briefing
   dedup: true              # Cross-source deduplication
+  dedup_lookback_days: 3   # Cross-day dedup: skip articles matching anything
+                          # published in the last N days (0 = disable).
+                          # Cache at ~/.local/share/remarkable-morning/

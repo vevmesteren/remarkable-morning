@@ -96,6 +96,9 @@ class CurationConfig:
     categories: list[str] = field(default_factory=list)
     briefing: bool = True
     dedup: bool = True
+    # Cross-day dedup: exclude articles matching anything published in the
+    # last N days (0 = disable the published-cache pre-curation gate).
+    dedup_lookback_days: int = 3
 
 
 @dataclass
@@ -203,6 +206,7 @@ def _build_config(data: Any) -> Config:
         categories=list(cur_raw.get("categories", [])),
         briefing=bool(cur_raw.get("briefing", True)),
         dedup=bool(cur_raw.get("dedup", True)),
+        dedup_lookback_days=int(cur_raw.get("dedup_lookback_days", 3)),
     )
 
     return Config(
