@@ -16,8 +16,10 @@ from remarkable_morning.config import Config
 
 logger = logging.getLogger(__name__)
 
-# Matches ``morning-paper-2026-11-10.epub`` in rmapi ls output lines.
-_DATE_RE = re.compile(r"morning-paper-(\d{4}-\d{2}-\d{2})\.epub")
+# Matches ``morning-paper-2026-11-10`` or ``morning-paper-2026-11-10.epub``
+# in rmapi ls output.  rmapi ls strips the file extension, so the .epub
+# suffix is optional.
+_DATE_RE = re.compile(r"morning-paper-(\d{4}-\d{2}-\d{2})(?:\.epub)?")
 
 
 def cleanup_old_files(config: Config) -> int:
@@ -51,8 +53,10 @@ def cleanup_old_files(config: Config) -> int:
         if file_date >= cutoff:
             continue  # Still within retention window
 
-        # Full path for rmapi rm
-        filename = f"{folder}/{match.group(0)}"
+        # Full path for rmapi rm — rmapi ls strips extensions, so use
+        # the base name without .epub (e.g. ``morning-paper-2026-11-10``).
+        base_name = f"morning-paper-{match.group(1)}"
+        filename = f"{folder}/{base_name}"
 
         logger.info("Removing old file: %s (dated %s)", filename, file_date)
         rm_result = subprocess.run(
