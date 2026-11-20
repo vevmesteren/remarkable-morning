@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "remarkable-morning"
-version = "0.2.0"
+version = "0.2.1"
 description = "Daily news digest pipeline for reMarkable Paper Pro — fetches configurable sources and languages, curates via LLM, builds a reflowable EPUB, uploads via rmapi."
 readme = "README.md"
 license = {text = "MIT"}

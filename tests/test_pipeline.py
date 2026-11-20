@@ -123,13 +123,14 @@ def test_upload_uses_correct_destination(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_cleanup_removes_old_files():
+    """rmapi ls strips the .epub extension — output is [f]\\tmorning-paper-YYYY-MM-DD."""
     config = Config(remarkable_folder="/News", retention_days=7)
     old_date = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
     recent_date = datetime.date.today().strftime("%Y-%m-%d")
     ls_output = (
-        f"[file]\tmorning-paper-{old_date}.epub\n"
-        f"[file]\tmorning-paper-{recent_date}.epub\n"
-        f"[dir]\tsomefolder\n"
+        f"[f]\tmorning-paper-{old_date}\n"
+        f"[f]\tmorning-paper-{recent_date}\n"
+        f"[d]\tsomefolder\n"
     )
 
     with patch(
@@ -144,10 +145,28 @@ def test_cleanup_removes_old_files():
     assert removed == 1
 
 
+def test_cleanup_removes_old_files_with_epub_extension():
+    """The regex also matches if .epub is present (e.g. from a different rmapi version)."""
+    config = Config(remarkable_folder="/News", retention_days=7)
+    old_date = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+    ls_output = f"[f]\tmorning-paper-{old_date}.epub\n"
+
+    with patch(
+        "remarkable_morning.cleanup.subprocess.run",
+        side_effect=[
+            _mock_subprocess(stdout=ls_output),
+            _mock_subprocess(),
+        ],
+    ):
+        removed = cleanup_old_files(config)
+
+    assert removed == 1
+
+
 def test_cleanup_keeps_recent_files():
     config = Config(remarkable_folder="/News", retention_days=7)
     recent_date = datetime.date.today().strftime("%Y-%m-%d")
-    ls_output = f"[file]\tmorning-paper-{recent_date}.epub\n"
+    ls_output = f"[f]\tmorning-paper-{recent_date}\n"
 
     with patch(
         "remarkable_morning.cleanup.subprocess.run",
@@ -183,9 +202,10 @@ def test_cleanup_empty_folder():
 
 
 def test_cleanup_uses_full_path_for_rm():
+    """rmapi rm needs the path WITHOUT .epub extension (matching rmapi ls output)."""
     config = Config(remarkable_folder="/News", retention_days=7)
     old_date = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
-    ls_output = f"[file]\tmorning-paper-{old_date}.epub\n"
+    ls_output = f"[f]\tmorning-paper-{old_date}\n"
     captured_cmds = []
 
     def fake_run(cmd, **kwargs):
@@ -200,13 +220,13 @@ def test_cleanup_uses_full_path_for_rm():
     rm_cmd = captured_cmds[1]
     assert rm_cmd[0] == "rmapi"
     assert rm_cmd[1] == "rm"
-    assert rm_cmd[2] == f"/News/morning-paper-{old_date}.epub"
+    assert rm_cmd[2] == f"/News/morning-paper-{old_date}"
 
 
 def test_cleanup_respects_retention_days():
     config = Config(remarkable_folder="/News", retention_days=30)
     old_date = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
-    ls_output = f"[file]\tmorning-paper-{old_date}.epub\n"
+    ls_output = f"[f]\tmorning-paper-{old_date}\n"
 
     with patch(
         "remarkable_morning.cleanup.subprocess.run",
