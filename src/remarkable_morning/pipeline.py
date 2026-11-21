@@ -71,6 +71,24 @@ def run(
         time.time() - t0,
     )
 
+    # --- 3a. Filter out articles with no extracted body text ---
+    # Articles whose extraction failed have empty ``full_text``. Drop them
+    # before curation so textless stubs never reach the EPUB, where they
+    # would render as "[Article text unavailable]". This complements
+    # extract._is_article_text(), which filters *bad* text but not *no*
+    # text — that gap is what this step closes.
+    before_textless = len(articles)
+    articles = [a for a in articles if a.full_text]
+    textless_filtered = before_textless - len(articles)
+    if textless_filtered:
+        logger.info("Filtered %d articles with no body text", textless_filtered)
+
+    if not articles:
+        logger.warning(
+            "No articles with body text after extraction — aborting pipeline"
+        )
+        return None
+
     # --- 3b. Cross-day dedup (published-cache gate) ---
     # Loads the persistent cache of previously published articles and
     # filters out repeats before curation, so the LLM never sees them.

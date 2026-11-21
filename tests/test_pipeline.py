@@ -336,6 +336,140 @@ def test_pipeline_no_curated_articles_returns_none(tmp_path):
     mock_upload.assert_not_called()
 
 
+# ---------------------------------------------------------------------------
+# Textless-article filter (RM-21)
+# ---------------------------------------------------------------------------
+
+def test_empty_full_text_filtered(tmp_path, caplog):
+    """Articles with empty full_text are dropped before curation."""
+    import logging as _logging
+    caplog.set_level(_logging.INFO, logger="remarkable_morning.pipeline")
+    with_text = Article(
+        id="a1",
+        title="World Event",
+        url="http://guardian.com/1",
+        source="The Guardian",
+        full_text="Full text of the first article. " * 10,
+        category="World",
+    )
+    without_text = Article(
+        id="a2",
+        title="Stub",
+        url="http://ars.com/1",
+        source="Ars Technica",
+        full_text="",
+        category="AI & Tech",
+    )
+    feeds = _valid_yaml(tmp_path)
+    epub_path = tmp_path / "morning-paper-2026-11-10.epub"
+    epub_path.write_text("fake")
+
+    with patch("remarkable_morning.pipeline.rss.fetch_rss", return_value=[with_text, without_text]), \
+         patch("remarkable_morning.pipeline.guardian.fetch_guardian", return_value=[]), \
+         patch("remarkable_morning.pipeline.extract_all", side_effect=lambda arts: arts), \
+         patch("remarkable_morning.pipeline.curate", return_value=("Briefing.", [with_text])) as mock_curate, \
+         patch("remarkable_morning.pipeline.build_epub", return_value=epub_path), \
+         patch("remarkable_morning.pipeline.upload_epub", return_value=True), \
+         patch("remarkable_morning.pipeline.cleanup_old_files", return_value=0), \
+         patch("remarkable_morning.published_cache.default_cache_path", return_value=tmp_path / "cache.json"), \
+         patch.dict("os.environ", {"GUARDIAN_API_KEY": "test-key", "OPENROUTER_API_KEY": "test-key"}):
+
+        result = run(config_path=str(feeds), output_dir=str(tmp_path))
+
+    # Only the article with body text reaches curation.
+    curated_input = mock_curate.call_args.args[0]
+    assert len(curated_input) == 1
+    assert curated_input[0].id == "a1"
+    # The filter count is logged.
+    assert any(
+        "Filtered 1 articles with no body text" in record.getMessage()
+        for record in caplog.records
+    )
+    assert result is not None
+
+
+def test_populated_full_text_kept(tmp_path, caplog):
+    """Articles with non-empty full_text are all kept (none filtered)."""
+    import logging as _logging
+    caplog.set_level(_logging.INFO, logger="remarkable_morning.pipeline")
+    articles = _mock_articles()  # both have full_text set
+    feeds = _valid_yaml(tmp_path)
+    epub_path = tmp_path / "morning-paper-2026-11-10.epub"
+    epub_path.write_text("fake")
+
+    with patch("remarkable_morning.pipeline.rss.fetch_rss", return_value=articles), \
+         patch("remarkable_morning.pipeline.guardian.fetch_guardian", return_value=[]), \
+         patch("remarkable_morning.pipeline.extract_all", side_effect=lambda arts: arts), \
+         patch("remarkable_morning.pipeline.curate", return_value=("Briefing.", articles)) as mock_curate, \
+         patch("remarkable_morning.pipeline.build_epub", return_value=epub_path), \
+         patch("remarkable_morning.pipeline.upload_epub", return_value=True), \
+         patch("remarkable_morning.pipeline.cleanup_old_files", return_value=0), \
+         patch("remarkable_morning.published_cache.default_cache_path", return_value=tmp_path / "cache.json"), \
+         patch.dict("os.environ", {"GUARDIAN_API_KEY": "test-key", "OPENROUTER_API_KEY": "test-key"}):
+
+        result = run(config_path=str(feeds), output_dir=str(tmp_path))
+
+    # Both articles reach curation — nothing was filtered.
+    curated_input = mock_curate.call_args.args[0]
+    assert len(curated_input) == 2
+    # No "Filtered N articles" log line when nothing was dropped.
+    assert not any(
+        "articles with no body text" in record.getMessage()
+        for record in caplog.records
+    )
+    assert result is not None
+
+
+def test_all_empty_exits_gracefully(tmp_path, caplog):
+    """If every article has empty full_text the pipeline exits, no EPUB built."""
+    import logging as _logging
+    caplog.set_level(_logging.INFO, logger="remarkable_morning.pipeline")
+    empty_articles = [
+        Article(
+            id="a1",
+            title="Stub One",
+            url="http://guardian.com/1",
+            source="The Guardian",
+            full_text="",
+        ),
+        Article(
+            id="a2",
+            title="Stub Two",
+            url="http://ars.com/1",
+            source="Ars Technica",
+            full_text="",
+        ),
+    ]
+    feeds = _valid_yaml(tmp_path)
+
+    with patch("remarkable_morning.pipeline.rss.fetch_rss", return_value=empty_articles), \
+         patch("remarkable_morning.pipeline.guardian.fetch_guardian", return_value=[]), \
+         patch("remarkable_morning.pipeline.extract_all", side_effect=lambda arts: arts), \
+         patch("remarkable_morning.pipeline.curate") as mock_curate, \
+         patch("remarkable_morning.pipeline.build_epub") as mock_build, \
+         patch("remarkable_morning.pipeline.upload_epub") as mock_upload, \
+         patch("remarkable_morning.published_cache.default_cache_path", return_value=tmp_path / "cache.json"), \
+         patch.dict("os.environ", {"GUARDIAN_API_KEY": "test-key", "OPENROUTER_API_KEY": "test-key"}):
+
+        result = run(config_path=str(feeds), output_dir=str(tmp_path))
+
+    assert result is None
+    # Curation never runs (no articles to curate).
+    mock_curate.assert_not_called()
+    # No EPUB is built or uploaded.
+    mock_build.assert_not_called()
+    mock_upload.assert_not_called()
+    # The filter count and graceful-exit warning are both logged.
+    assert any(
+        "Filtered 2 articles with no body text" in record.getMessage()
+        for record in caplog.records
+    )
+    assert any(
+        "No articles with body text after extraction" in record.getMessage()
+        for record in caplog.records
+    )
+
+
 def test_pipeline_produces_real_epub(tmp_path):
     """Full pipeline with real EPUB assembly (only network/rmapi mocked)."""
     articles = _mock_articles()
