@@ -49,6 +49,10 @@ class Article:
     category: str | None = None
     also_covered_by: list[str] = field(default_factory=list)
     duplicate_of: str | None = None
+    # True when this article survived dedup but was dropped by the
+    # max_per_source cap (source-diversity enforcement). Distinct from
+    # ``is_duplicate`` — a capped article is not an overlap drop.
+    capped: bool = False
 
     @property
     def first_200_words(self) -> str:

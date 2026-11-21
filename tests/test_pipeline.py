@@ -1,6 +1,7 @@
 """Integration tests for upload, cleanup, and the full pipeline (mocked — no network/rmapi)."""
 
 import datetime
+import json
 import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -490,3 +491,104 @@ def test_pipeline_produces_real_epub(tmp_path):
     assert result.exists()
     assert result.suffix == ".epub"
     assert "morning-paper-" in result.name
+
+
+# ---------------------------------------------------------------------------
+# Analytics integration (RM-22)
+# ---------------------------------------------------------------------------
+
+def test_pipeline_produces_analytics_file(tmp_path):
+    """Pipeline run produces analytics/YYYY-MM-DD.json with correct per-source counts.
+
+    The articles carry the FINAL dedup state (duplicate_of, capped) as set
+    by curate(). The mocked curate returns only the survivors; the full
+    article list (with metadata) is what the pipeline passes to
+    write_analytics.
+    """
+    # Guardian: 2 ingested, 1 selected, 1 deduped (overlap with BBC)
+    g_sel = Article(
+        id="g1", title="Guardian selected story", url="http://g/1",
+        source="The Guardian", full_text="content " * 20, category="World",
+    )
+    g_dup = Article(
+        id="g2", title="Guardian dup of BBC", url="http://g/2",
+        source="The Guardian", full_text="content " * 20,
+        duplicate_of="b1",  # deduped — survivor is the BBC article
+    )
+    # BBC: 2 ingested, 1 selected, 1 capped (not a dedup drop)
+    b_sel = Article(
+        id="b1", title="BBC selected story", url="http://b/1",
+        source="BBC News", full_text="content " * 20, category="World",
+    )
+    b_cap = Article(
+        id="b2", title="BBC capped story", url="http://b/2",
+        source="BBC News", full_text="content " * 20, capped=True,
+    )
+
+    articles = [g_sel, g_dup, b_sel, b_cap]
+    selected = [g_sel, b_sel]  # survivors only
+    feeds = _valid_yaml(tmp_path)
+    epub_path = tmp_path / "morning-paper-2026-11-10.epub"
+    epub_path.write_text("fake")
+
+    with patch("remarkable_morning.pipeline.rss.fetch_rss", return_value=articles), \
+         patch("remarkable_morning.pipeline.guardian.fetch_guardian", return_value=[]), \
+         patch("remarkable_morning.pipeline.extract_all", side_effect=lambda arts: arts), \
+         patch("remarkable_morning.pipeline.curate", return_value=("Briefing.", selected)), \
+         patch("remarkable_morning.pipeline.build_epub", return_value=epub_path), \
+         patch("remarkable_morning.pipeline.upload_epub", return_value=True), \
+         patch("remarkable_morning.pipeline.cleanup_old_files", return_value=0), \
+         patch("remarkable_morning.published_cache.default_cache_path", return_value=tmp_path / "cache.json"), \
+         patch("remarkable_morning.pipeline._today", return_value="2026-11-10"), \
+         patch.dict("os.environ", {"GUARDIAN_API_KEY": "test-key", "OPENROUTER_API_KEY": "test-key"}):
+
+        result = run(config_path=str(feeds), output_dir=str(tmp_path))
+
+    assert result is not None
+
+    # Analytics file written
+    analytics_path = tmp_path / "analytics" / "2026-11-10.json"
+    assert analytics_path.exists()
+    data = json.loads(analytics_path.read_text(encoding="utf-8"))
+
+    assert data["date"] == "2026-11-10"
+    sources = data["sources"]
+
+    # Guardian: 2 ingested, 1 selected, 1 deduped_out, 0 capped, overlap with BBC
+    g = sources["The Guardian"]
+    assert g["ingested"] == 2
+    assert g["selected"] == 1
+    assert g["deduped_out"] == 1
+    assert g["capped_out"] == 0
+    assert g["overlap_with"] == {"BBC News": 1}
+
+    # BBC: 2 ingested, 1 selected, 0 deduped_out, 1 capped, no overlap
+    b = sources["BBC News"]
+    assert b["ingested"] == 2
+    assert b["selected"] == 1
+    assert b["deduped_out"] == 0
+    assert b["capped_out"] == 1
+    assert b["overlap_with"] == {}
+
+
+def test_pipeline_no_analytics_on_abort(tmp_path):
+    """No analytics file when curation selects zero articles (early abort)."""
+    articles = _mock_articles()
+    feeds = _valid_yaml(tmp_path)
+
+    with patch("remarkable_morning.pipeline.rss.fetch_rss", return_value=articles), \
+         patch("remarkable_morning.pipeline.guardian.fetch_guardian", return_value=[]), \
+         patch("remarkable_morning.pipeline.extract_all", side_effect=lambda arts: arts), \
+         patch("remarkable_morning.pipeline.curate", return_value=("No news.", [])), \
+         patch("remarkable_morning.pipeline.build_epub"), \
+         patch("remarkable_morning.pipeline.upload_epub"), \
+         patch("remarkable_morning.published_cache.default_cache_path", return_value=tmp_path / "cache.json"), \
+         patch("remarkable_morning.pipeline._today", return_value="2026-11-10"), \
+         patch.dict("os.environ", {"GUARDIAN_API_KEY": "test-key", "OPENROUTER_API_KEY": "test-key"}):
+
+        result = run(config_path=str(feeds), output_dir=str(tmp_path))
+
+    assert result is None
+    analytics_path = tmp_path / "analytics" / "2026-11-10.json"
+    assert not analytics_path.exists()
+    assert not (tmp_path / "analytics").exists()

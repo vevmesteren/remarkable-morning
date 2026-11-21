@@ -37,6 +37,9 @@ Thumbs.db
 # Generated EPUBs (local testing output)
 *.epub
 
+# Per-run analytics files (local metrics, gitignored)
+analytics/
+
 # pytest
 .pytest_cache/
 .coverage

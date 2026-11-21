@@ -303,6 +303,10 @@ def _fallback_dedup(articles: list[Article]) -> list[Article]:
                 else:
                     if article.source and article.source not in k.also_covered_by:
                         k.also_covered_by.append(article.source)
+                    # Mark the dropped article as a duplicate of the kept one
+                    # so downstream consumers (analytics) have complete dedup
+                    # metadata for every overlap drop, not just weight swaps.
+                    article.duplicate_of = k.id
                     logger.info(
                         "Fallback dedup: '%s' (%s) is duplicate of '%s' (%s) [ratio=%.2f]",
                         article.title[:60], article.source, k.title[:60], k.source, ratio,
@@ -332,6 +336,9 @@ def _enforce_max_per_source(articles: list[Article], max_per_source: int) -> lis
             kept.append(article)
             source_counts[article.source] = count + 1
         else:
+            # Mark the article as capped so downstream consumers (analytics)
+            # can distinguish cap drops from dedup/overlap drops.
+            article.capped = True
             logger.info(
                 "Source diversity: dropping '%s' from %s (cap=%d)",
                 article.title[:50], article.source, max_per_source,
