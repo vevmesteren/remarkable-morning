@@ -22,6 +22,7 @@ import sys
 import time
 from pathlib import Path
 
+from remarkable_morning.analytics import write_analytics
 from remarkable_morning.cleanup import cleanup_old_files
 from remarkable_morning.config import Config, load_config
 from remarkable_morning.curate import curate
@@ -89,6 +90,15 @@ def run(
         )
         return None
 
+    # Capture ingested counts per source AFTER extraction + textless filter
+    # (step 3a) but BEFORE cross-day dedup. The cross-day dedup step below
+    # removes articles from the list, so we must snapshot counts now —
+    # analytics needs the pre-dedup ingestion figure per source.
+    ingested_counts: dict[str, int] = {}
+    for a in articles:
+        if a.source:
+            ingested_counts[a.source] = ingested_counts.get(a.source, 0) + 1
+
     # --- 3b. Cross-day dedup (published-cache gate) ---
     # Loads the persistent cache of previously published articles and
     # filters out repeats before curation, so the LLM never sees them.
@@ -122,6 +132,13 @@ def run(
     if not selected:
         logger.warning("No articles selected after curation — skipping EPUB")
         return None
+
+    # --- 4b. Write per-run analytics ---
+    # The articles list carries the FINAL dedup state (duplicate_of,
+    # capped) after all correction passes inside curate(). We pass it
+    # alongside the selected list so analytics can derive per-source
+    # deduped_out, overlap_with, and capped_out metrics.
+    write_analytics(_today(), ingested_counts, selected, articles)
 
     # --- 5. Assemble EPUB ---
     t0 = time.time()
