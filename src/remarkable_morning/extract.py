@@ -199,6 +199,8 @@ _NON_ARTICLE_PATTERNS = frozenset([
     "subscribe to continue reading",     # EN
     "subscribe to read",                 # EN
     "this article is for subscribers",   # EN
+    "for full access",                   # EN — "Subscribe to [X] for full access"
+    "already subscribed",                # EN — "Already subscribed?" paywall pages
     "réservé aux abonnés",               # FR
     "abonnez-vous",                      # FR
     "nur für abonnenten",                # DE

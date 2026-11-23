@@ -215,6 +215,16 @@ PAYWALL_FR = (
     "Cet article est réservé aux abonnés. Abonnez-vous pour continuer à lire "
     "le contenu complet et accéder à toutes les fonctionnalités."
 )
+# Stratechery-style paywall: "Subscribe to [X] for full access" + "Already subscribed?"
+# — passes gibberish detector and word-count gate, rejected only by new patterns.
+PAYWALL_FOR_FULL_ACCESS = (
+    "An interview with Eric Seufert about agentic commerce, including why he "
+    "thinks ads will be the answer, and why I want retailers who cater to agents. "
+    "Subscribe to Stratechery Plus for full access. Already subscribed? "
+    "With Stratechery Plus you get access to the subscriber-only Stratechery "
+    "Update and Stratechery Interviews, and the Sharp Tech, Sharp China, "
+    "Dithering, Greatest of All Talk, and Asianometry podcasts."
+)
 
 # A legitimate short article — real journalism, >= 20 words, no patterns.
 LEGIT_SHORT = (
@@ -269,6 +279,23 @@ def test_is_article_text_rejects_paywall_fr():
     assert _is_article_text(PAYWALL_FR) is False
 
 
+def test_is_article_text_rejects_paywall_for_full_access():
+    """Stratechery-style 'Subscribe to [X] for full access' paywall page."""
+    from remarkable_morning.extract import _is_article_text
+    assert _is_article_text(PAYWALL_FOR_FULL_ACCESS) is False
+
+
+def test_is_article_text_rejects_paywall_already_subscribed():
+    """'Already subscribed?' is a paywall indicator even without other patterns."""
+    from remarkable_morning.extract import _is_article_text
+    text = (
+        "This is a premium article with exclusive content and analysis. "
+        "Already subscribed? Sign in to continue reading the full report "
+        "and access all subscriber-only features on our platform today."
+    )
+    assert _is_article_text(text) is False
+
+
 def test_is_article_text_rejects_short_text():
     from remarkable_morning.extract import _is_article_text
     assert _is_article_text("This is too short to be an article.") is False
@@ -313,6 +340,20 @@ def test_extract_text_rejects_paywall():
         raw_html="<html><body>paywall page</body></html>",
     )
     with patch("remarkable_morning.extract._extract", return_value=PAYWALL_EN):
+        extract_text(article)
+    assert article.full_text == ""
+
+
+def test_extract_text_rejects_stratechery_paywall():
+    """Stratechery subscription page passes gibberish + word count but must
+    be rejected by the 'for full access' / 'already subscribed' patterns."""
+    article = Article(
+        id="stratechery-1",
+        title="An Interview With Eric Seufert About Agentic Commerce",
+        url="",
+        raw_html="<html><body>subscription page</body></html>",
+    )
+    with patch("remarkable_morning.extract._extract", return_value=PAYWALL_FOR_FULL_ACCESS):
         extract_text(article)
     assert article.full_text == ""
 
